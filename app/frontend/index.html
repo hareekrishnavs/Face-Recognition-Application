@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FaceVault</title>
+  <link rel="stylesheet" href="/static/css/app.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Top nav ──────────────────────────────────────────────────────────── -->
+  <nav id="topbar">
+    <div class="logo">Face<span class="logo-accent">Vault</span></div>
+
+    <div class="badge-live">
+      <span class="live-dot"></span>
+      LIVE
+    </div>
+
+    <div class="badge-demo" id="demo-badge">DEMO</div>
+
+    <div id="topbar-sep" style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
+
+    <div id="threshold-wrap">
+      <span style="color:var(--text-muted);font-size:10px;letter-spacing:0.08em;">THRESHOLD</span>
+      <input
+        id="threshold-slider"
+        type="range"
+        min="0.40" max="0.95" step="0.01"
+        value="0.65"
+        title="Confidence threshold"
+      />
+      <span id="threshold-val">0.65</span>
+    </div>
+
+    <div id="topbar-sep2" style="width:1px;height:20px;background:var(--border);flex-shrink:0;"></div>
+
+    <div id="model-status" class="unloaded">NO MODEL</div>
+
+    <div class="spacer"></div>
+
+    <div id="clock">00:00:00</div>
+  </nav>
+
+  <!-- ── Workspace (camera + dashboard) ──────────────────────────────────── -->
+  <main id="workspace">
+
+    <!-- Camera panel -->
+    <section id="camera-panel">
+      <div class="panel-label">
+        <span class="panel-label-dot"></span>
+        CAMERA FEED
+      </div>
+      <div id="video-container">
+        <img id="video-stream" src="/video_feed" alt="camera feed" />
+        <canvas id="detection-overlay"></canvas>
+        <div class="scan-line"></div>
+      </div>
+    </section>
+
+    <!-- Dashboard panel -->
+    <aside id="dashboard-panel">
+
+      <!-- Stats cards -->
+      <div id="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Detected Today</div>
+          <div class="stat-value" id="stat-detected">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Sessions Today</div>
+          <div class="stat-value" id="stat-sessions">0</div>
+        </div>
+      </div>
+
+      <!-- Activity log -->
+      <div id="activity-section">
+        <div class="section-header">
+          <span class="section-title">Activity Log</span>
+          <button class="btn-export" id="btn-export-csv">Export CSV</button>
+        </div>
+        <div id="activity-list"></div>
+      </div>
+
+    </aside>
+  </main>
+
+  <!-- ── Gallery bar ───────────────────────────────────────────────────────── -->
+  <footer id="gallery-bar">
+    <span class="gallery-label">Known&nbsp;Users</span>
+    <div id="gallery-cards"></div>
+    <button class="user-add-btn" id="btn-add-user" title="Manually add a person">
+      <div class="user-add-icon">+</div>
+      <span class="user-add-label">Add</span>
+    </button>
+  </footer>
+
+  <!-- ── Enrollment slide panel ────────────────────────────────────────────── -->
+  <div id="enrollment-panel">
+    <div class="enroll-header">
+      <span class="enroll-title">Enroll Person</span>
+      <button class="enroll-close" id="enroll-close-btn" title="Dismiss">✕</button>
+    </div>
+
+    <div class="enroll-body">
+
+      <!-- Face preview -->
+      <div class="enroll-face-preview">
+        <img id="enroll-preview-img" src="" alt="Unknown face" />
+      </div>
+
+      <!-- Step 1: prompt to verify or dismiss -->
+      <div class="enroll-step active" id="enroll-step-1">
+        <div class="enroll-step-title">Unknown face detected</div>
+        <div class="enroll-step-desc">
+          An unrecognised person has appeared in the camera feed.<br>
+          To add them, a <strong>known user</strong> must look at the camera to approve.
+        </div>
+        <div class="enroll-btn-row">
+          <button class="btn-primary" id="btn-verify-start">Verify &amp; Add</button>
+          <button class="btn-secondary" id="btn-enroll-dismiss">Dismiss</button>
+        </div>
+      </div>
+
+      <!-- Step 2: verification in progress -->
+      <div class="enroll-step" id="enroll-step-2">
+        <div class="enroll-step-title">Waiting for approval</div>
+        <div class="enroll-step-desc">
+          A <strong>known user</strong> should now look directly at the camera.<br>
+          Recognition window: <strong>15 seconds</strong>.
+        </div>
+        <div id="verify-status">
+          <span id="verify-status-dot" class="waiting"></span>
+          <span id="verify-status-text">Scanning for known face…</span>
+          <span id="verify-timer">15s</span>
+        </div>
+        <div class="enroll-btn-row">
+          <button class="btn-secondary" id="btn-verify-cancel">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Step 3: verified — enter name -->
+      <div class="enroll-step" id="enroll-step-3">
+        <div class="enroll-step-title">Approved</div>
+        <div id="verifier-badge" class="verified-badge">
+          ✓ Verified by <span id="verifier-name"></span>
+        </div>
+        <div class="enroll-step-desc">
+          Enter the name for this person.
+        </div>
+        <div class="enroll-input-row">
+          <input
+            id="enroll-name-input"
+            type="text"
+            placeholder="Full name…"
+            autocomplete="off"
+            maxlength="48"
+          />
+        </div>
+        <div class="enroll-btn-row">
+          <button class="btn-primary" id="btn-enroll-confirm">Confirm &amp; Save</button>
+          <button class="btn-secondary" id="btn-enroll-cancel">Cancel</button>
+        </div>
+      </div>
+
+    </div><!-- /enroll-body -->
+  </div><!-- /enrollment-panel -->
+
+  <!-- ── Confirm dialog ────────────────────────────────────────────────────── -->
+  <div id="confirm-overlay">
+    <div class="confirm-dialog">
+      <div class="confirm-title">Remove person</div>
+      <div class="confirm-desc">
+        Remove <span class="confirm-name" id="confirm-name"></span> from FaceVault?
+        They will no longer be recognised.
+      </div>
+      <div class="confirm-btns">
+        <button class="btn-secondary" id="confirm-cancel-btn">Cancel</button>
+        <button class="btn-danger" id="confirm-ok-btn">Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast container ───────────────────────────────────────────────────── -->
+  <div id="toast-container"></div>
+
+</div><!-- /#app -->
+
+<script src="/static/js/app.js"></script>
+<script src="/static/js/dashboard.js"></script>
+<script src="/static/js/gallery.js"></script>
+<script src="/static/js/enrollment.js"></script>
+</body>
+</html>
