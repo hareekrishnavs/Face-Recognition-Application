@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FaceVault — AI Face Recognition</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+  <!-- Neural network particle canvas (background) -->
+  <canvas id="neural-bg"></canvas>
+
+  <!-- CRT scanline overlay -->
+  <div id="crt-overlay"></div>
+
+  <!-- Demo mode banner -->
+  <div id="demo-banner">⚠  DEMO MODE — Model not loaded. Using simulated detections.</div>
+
+  <div id="app">
+
+    <!-- ── TOP NAV ── -->
+    <nav id="topbar">
+      <div class="logo">
+        <div class="logo-icon" data-glitch="◈">◈</div>
+        <span class="logo-text">Face<span class="logo-accent">Vault</span></span>
+        <span class="logo-tag">AI</span>
+      </div>
+
+      <div class="live-badge" id="live-badge">
+        <span class="live-dot"></span>LIVE
+      </div>
+
+      <div class="spacer"></div>
+
+      <div class="threshold-control">
+        <span class="threshold-label">THRESHOLD</span>
+        <input type="range" id="threshold-slider" min="0.40" max="0.95" step="0.01" value="0.65">
+        <span id="threshold-value" class="threshold-val">0.65</span>
+      </div>
+
+      <button class="settings-btn" title="Settings">⚙</button>
+    </nav>
+
+    <!-- ── MAIN WORKSPACE ── -->
+    <main id="workspace">
+
+      <!-- LEFT: CAMERA -->
+      <section id="camera-panel">
+        <div id="video-container">
+          <img id="video-stream" src="" alt="" style="display:none">
+          <canvas id="detection-overlay"></canvas>
+          <div class="scan-line"></div>
+
+          <!-- Corner bracket decorations -->
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+
+          <!-- HUD stats (visible when camera is active) -->
+          <div id="hud-stats">
+            <div class="hud-row">
+              <span class="hud-label">ENGINE</span>
+              <span class="hud-val hud-green">● NEURAL</span>
+            </div>
+            <div class="hud-row">
+              <span class="hud-label">FPS</span>
+              <span class="hud-val" id="hud-fps">--</span>
+            </div>
+            <div class="hud-row">
+              <span class="hud-label">SCANS</span>
+              <span class="hud-val" id="hud-scans">0</span>
+            </div>
+          </div>
+
+          <!-- Camera inactive state -->
+          <div id="camera-inactive">
+            <!-- Biometric scanner rings -->
+            <div class="bio-scanner">
+              <div class="scanner-ring r1"></div>
+              <div class="scanner-ring r2"></div>
+              <div class="scanner-ring r3"></div>
+              <div class="scanner-arc"></div>
+              <div class="scanner-arc scanner-arc-2"></div>
+              <div class="scanner-dot"></div>
+              <div class="scanner-cross">
+                <div class="cross-h"></div>
+                <div class="cross-v"></div>
+              </div>
+            </div>
+            <span class="inactive-label" id="typewriter-text"></span>
+            <p class="inactive-sub">Click below to activate face recognition</p>
+          </div>
+        </div>
+
+        <button id="camera-toggle-btn">
+          <span class="btn-icon">▶</span>
+          <span class="btn-label">ACTIVATE CAMERA</span>
+        </button>
+      </section>
+
+      <!-- RIGHT: ACTIVITY LOG -->
+      <aside id="activity-panel">
+        <div id="activity-header">
+          <div class="panel-title-row">
+            <span class="panel-dot"></span>
+            <span class="panel-label">LIVE ACTIVITY</span>
+          </div>
+          <button class="export-btn" id="export-csv-btn">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>
+            </svg>
+            Export
+          </button>
+        </div>
+        <div id="activity-list">
+          <div class="log-empty">
+            <div class="empty-icon">◎</div>
+            <span>No detections yet</span>
+            <span class="empty-sub">Activate camera to begin scanning</span>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- ── GALLERY BAR ── -->
+    <footer id="gallery-bar">
+      <div id="gallery-header">
+        <div class="panel-title-row">
+          <span class="panel-dot"></span>
+          <span class="panel-label">ENROLLED USERS</span>
+        </div>
+        <span id="user-count" class="enrolled-count">0 enrolled</span>
+      </div>
+      <div id="gallery-users"></div>
+    </footer>
+  </div>
+
+  <!-- ── ENROLLMENT PANEL ── -->
+  <div id="enrollment-panel">
+    <div class="enroll-glow-top"></div>
+    <div class="enrollment-header">
+      <div>
+        <p class="enroll-eyebrow">FACE DETECTED</p>
+        <h2 class="enroll-title">New Person</h2>
+      </div>
+      <div class="enrollment-steps">
+        <div class="step-dot active"></div>
+        <div class="step-dot"></div>
+      </div>
+    </div>
+    <div id="enrollment-face-preview"></div>
+    <div id="step-1" style="display:flex;flex-direction:column;gap:12px">
+      <p class="enroll-desc">Unknown face detected. Add this person to your recognition database?</p>
+      <button id="btn-add" class="btn-primary">＋  Add to FaceVault</button>
+      <button id="btn-dismiss" class="btn-ghost">Dismiss</button>
+    </div>
+    <div id="step-2" style="display:none;flex-direction:column;gap:12px">
+      <p class="enroll-desc">Enter a name for this person:</p>
+      <input type="text" id="enroll-name-input" class="enroll-input" placeholder="Full name…" maxlength="40" autocomplete="off">
+      <button id="btn-confirm" class="btn-primary">✓  Confirm &amp; Enroll</button>
+      <button id="btn-cancel" class="btn-ghost">Cancel</button>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="/static/js/neural.js"></script>
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/activity.js"></script>
+  <script src="/static/js/gallery.js"></script>
+  <script src="/static/js/enrollment.js"></script>
+</body>
+</html>
