@@ -19,6 +19,7 @@ splitDirs = {
 
 modelsDir = projectRoot / "models"
 modelSavePath = modelsDir / "bestModel.pth"
+faceIndexPath = modelsDir / "face_index.npz"
 labelMapPath = modelsDir / "labelMap.json"
 trainingSummaryPath = modelsDir / "training_summary.json"
 datasetMetadataPath = processedDir / "metadata.json"
@@ -38,7 +39,8 @@ supportedExtensions = {
 
 outputImageFormat = "jpg"
 imageSize = (160, 160)
-hiddenDim = 128
+hiddenDim = 96
+backboneName = "resnet18"
 faceCropMargin = 0.28
 minFaceSize = 48
 randomSeed = 42
@@ -63,14 +65,13 @@ augmentationPlan = {
 
 batchSize = 16
 numWorkers = 0
-learningRate = 3e-4
+learningRate = 1e-4
 numEpochs = 35
-weightDecay = 1e-4
-dropoutRate = 0.35
+weightDecay = 1e-3
+dropoutRate = 0.45
 labelSmoothing = 0.05
-earlyStoppingPatience = 8
+earlyStoppingPatience = 5
 confidenceThresholdFloor = 0.45
 confidenceThresholdCeil = 0.90
-defaultUnknownThreshold = 0.65
-defaultRecognitionMargin = 0.12
+defaultUnknownThreshold = 0.40
 inferenceTopK = 3

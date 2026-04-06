@@ -3,25 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FaceVault — AI Face Recognition</title>
+  <title>FaceVault</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
 
-  <!-- Demo mode banner -->
-  <div id="demo-banner">⚠  DEMO MODE — Model not loaded. Using simulated detections.</div>
+  <div id="demo-banner">Demo mode: model not loaded.</div>
 
   <div id="app">
 
-    <!-- ── TOP NAV ── -->
     <nav id="topbar">
       <div class="logo">
-        <div class="logo-icon" data-glitch="◈">◈</div>
-        <span class="logo-text">Face<span class="logo-accent">Vault</span></span>
-        <span class="logo-tag">AI</span>
+        <div class="logo-icon">FV</div>
+        <span class="logo-text">FaceVault</span>
       </div>
 
       <div class="live-badge" id="live-badge">
@@ -35,14 +32,10 @@
         <input type="range" id="threshold-slider" min="0.40" max="0.95" step="0.01" value="0.65">
         <span id="threshold-value" class="threshold-val">0.65</span>
       </div>
-
-      <button class="settings-btn" title="Settings">⚙</button>
     </nav>
 
-    <!-- ── MAIN WORKSPACE ── -->
     <main id="workspace">
 
-      <!-- LEFT: CAMERA -->
       <section id="camera-panel">
         <div id="video-container">
           <img id="video-stream" src="" alt="" style="display:none">
@@ -55,11 +48,10 @@
           </div>
           <div id="capture-status" class="capture-status info">MacBook camera ready.</div>
 
-          <!-- HUD stats (visible when camera is active) -->
           <div id="hud-stats">
             <div class="hud-row">
               <span class="hud-label">ENGINE</span>
-              <span class="hud-val hud-green">● NEURAL</span>
+              <span class="hud-val hud-green">InsightFace</span>
             </div>
             <div class="hud-row">
               <span class="hud-label">FPS</span>
@@ -71,28 +63,32 @@
             </div>
           </div>
 
-          <!-- Camera inactive state -->
           <div id="camera-inactive">
             <span class="inactive-label" id="typewriter-text"></span>
-            <p class="inactive-sub">Click below to activate face recognition</p>
+            <p class="inactive-sub">Start the camera to recognize a face</p>
           </div>
         </div>
 
-        <button id="camera-toggle-btn">
-          <span class="btn-icon">▶</span>
-          <span class="btn-label">ACTIVATE CAMERA</span>
-        </button>
+        <div class="camera-actions">
+          <button id="camera-toggle-btn">
+            <span class="btn-icon">▶</span>
+            <span class="btn-label">START CAMERA</span>
+          </button>
+          <button id="clear-screen-btn" class="secondary-btn" type="button">CLEAR RESULT</button>
+        </div>
+        <div id="result-note" class="result-note">
+          New people can be added with 1 to 5 clear face captures and become available immediately after update.
+        </div>
       </section>
 
-      <!-- RIGHT: ACTIVITY LOG -->
       <aside id="activity-panel">
         <div id="activity-header">
           <div class="panel-title-row">
             <span class="panel-dot"></span>
-            <span class="panel-label">LIVE ACTIVITY</span>
+            <span class="panel-label">RECENT DETECTIONS</span>
           </div>
           <button class="export-btn" id="export-csv-btn">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
               <path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>
             </svg>
@@ -103,32 +99,18 @@
           <div class="log-empty">
             <div class="empty-icon">◎</div>
             <span>No detections yet</span>
-            <span class="empty-sub">Activate camera to begin scanning</span>
+            <span class="empty-sub">Start the camera to begin</span>
           </div>
         </div>
       </aside>
     </main>
-
-    <!-- ── GALLERY BAR ── -->
-    <footer id="gallery-bar">
-      <div id="gallery-header">
-        <div class="panel-title-row">
-          <span class="panel-dot"></span>
-          <span class="panel-label">ENROLLED USERS</span>
-        </div>
-        <span id="user-count" class="enrolled-count">0 enrolled</span>
-      </div>
-      <div id="gallery-users"></div>
-    </footer>
   </div>
 
-  <!-- ── ENROLLMENT PANEL ── -->
   <div id="enrollment-panel">
-    <div class="enroll-glow-top"></div>
     <div class="enrollment-header">
       <div>
-        <p class="enroll-eyebrow">FACE DETECTED</p>
-        <h2 class="enroll-title">New Person</h2>
+        <p class="enroll-eyebrow">UNKNOWN FACE</p>
+        <h2 class="enroll-title">Add New Person</h2>
       </div>
       <div class="enrollment-steps">
         <div class="step-dot active"></div>
@@ -137,14 +119,14 @@
     </div>
     <div id="enrollment-face-preview"></div>
     <div id="step-1" style="display:flex;flex-direction:column;gap:12px">
-      <p class="enroll-desc">Unknown face detected. Add this person to your recognition database?</p>
-      <button id="btn-add" class="btn-primary">＋  Add to FaceVault</button>
+      <p class="enroll-desc">This model can add a person from a few clear captures. Once saved, the person is available in the system immediately.</p>
+      <button id="btn-add" class="btn-primary">Add Person</button>
       <button id="btn-dismiss" class="btn-ghost">Dismiss</button>
     </div>
     <div id="step-2" style="display:none;flex-direction:column;gap:12px">
-      <p class="enroll-desc">Enter a name for this person:</p>
-      <input type="text" id="enroll-name-input" class="enroll-input" placeholder="Full name…" maxlength="40" autocomplete="off">
-      <button id="btn-confirm" class="btn-primary">✓  Confirm &amp; Enroll</button>
+      <p class="enroll-desc">Enter a name to update the system now.</p>
+      <input type="text" id="enroll-name-input" class="enroll-input" placeholder="Full name" maxlength="40" autocomplete="off">
+      <button id="btn-confirm" class="btn-primary">Save And Update</button>
       <button id="btn-cancel" class="btn-ghost">Cancel</button>
     </div>
   </div>
@@ -153,7 +135,6 @@
 
   <script src="/static/js/app.js"></script>
   <script src="/static/js/activity.js"></script>
-  <script src="/static/js/gallery.js"></script>
   <script src="/static/js/enrollment.js"></script>
 </body>
 </html>

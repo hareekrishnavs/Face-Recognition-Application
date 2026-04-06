@@ -57,7 +57,7 @@ panel.querySelector('#btn-confirm').addEventListener('click', () => {
     body: JSON.stringify({ name })
   })
     .then(() => {
-      showToast(`${name} added to FaceVault`, 'success');
+      showToast(`${name} added and available immediately`, 'success');
       closePanel();
     })
     .catch(() => {});

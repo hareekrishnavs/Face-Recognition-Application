@@ -6,13 +6,10 @@
     "Jacob",
     "Jousha"
   ],
-  "best_val_loss": 0.34790611267089844,
-  "best_val_accuracy": 100.0,
-  "final_val_loss": 0.34790611267089844,
   "final_val_accuracy": 100.0,
-  "final_test_loss": 0.30888670682907104,
   "final_test_accuracy": 100.0,
-  "unknown_threshold": 0.65,
-  "recognition_margin": 0.12,
-  "inference_mode": "classification"
+  "unknown_threshold": 0.45,
+  "inference_mode": "insightface_embeddings",
+  "backbone": "buffalo_l",
+  "embedding_size": 512
 }

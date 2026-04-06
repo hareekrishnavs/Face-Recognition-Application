@@ -1,16 +1,6 @@
 {
-  "image_size": [
-    160,
-    160
-  ],
-  "class_names": [
-    "Haree",
-    "HariHaran",
-    "Harsha",
-    "Jacob",
-    "Jousha"
-  ],
-  "inference_mode": "classification",
-  "unknown_threshold": 0.65,
-  "recognition_margin": 0.12
+  "inference_mode": "insightface_embeddings",
+  "backbone": "buffalo_l",
+  "embedding_size": 512,
+  "unknown_threshold": 0.45
 }

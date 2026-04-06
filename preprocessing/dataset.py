@@ -1,5 +1,6 @@
 import json
 import math
+import re
 import shutil
 import sys
 from collections import defaultdict
@@ -50,6 +51,8 @@ class CroppedFaceRecord:
 
 
 class FaceDatasetPreprocessor:
+    PIPELINE_VERSION = 2
+
     def __init__(self) -> None:
         self.frontFaceDetector = cv2.CascadeClassifier(
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -93,6 +96,7 @@ class FaceDatasetPreprocessor:
                     personSummary["train_augmented"] += augmentedCount
 
         manifest = {
+            "preprocessing_version": self.PIPELINE_VERSION,
             "image_size": list(imageSize),
             "split_ratios": splitRatios,
             "augmentation_plan": augmentationPlan,
@@ -385,6 +389,7 @@ class FaceDatasetPreprocessor:
     def _normalise_stem(self, imagePath: Path) -> str:
         stem = imagePath.stem or imagePath.name
         cleaned = "".join(char if char.isalnum() else "_" for char in stem).strip("_")
+        cleaned = re.sub(r"_+", "_", cleaned)
         return cleaned.lower() or "image"
 
 

@@ -1,0 +1,12 @@
+Flask
+Flask-Cors
+Flask-SocketIO
+numpy
+opencv-python
+Pillow
+pillow-heif
+torch
+torchvision
+scikit-learn
+insightface
+onnxruntime

@@ -11,7 +11,7 @@ const hudStats = document.getElementById('hud-stats');
 const TYPEWRITER_PHRASES = [
   'Face recognition ready',
   'Camera waiting for a face',
-  'Stand still for a clear capture',
+  'Hold still for a quick capture',
   'Ready to identify',
 ];
 let _twPhrase = 0, _twChar = 0, _twDeleting = false, _twTimer = null;
@@ -58,6 +58,7 @@ fetch('/api/config')
 
 // ── DOM refs ─────────────────────────────────────────────
 const cameraBtn       = document.getElementById('camera-toggle-btn');
+const clearBtn        = document.getElementById('clear-screen-btn');
 const btnLabel        = cameraBtn.querySelector('.btn-label');
 const videoImg        = document.getElementById('video-stream');
 const inactiveOverlay = document.getElementById('camera-inactive');
@@ -77,6 +78,22 @@ cameraBtn.addEventListener('click', () => {
   }
 });
 
+if (clearBtn) {
+  clearBtn.addEventListener('click', () => {
+    if (cameraActive) {
+      fetch('/api/camera/stop', { method: 'POST' }).catch(() => {});
+    }
+    fetch('/api/view/clear', { method: 'POST' }).catch(() => {});
+    drawDetections([]);
+    updateCaptureStatus('Screen cleared. Start the camera when ready.', 'info');
+    updateStabilityMeter(0);
+    videoImg.style.display = 'none';
+    videoImg.removeAttribute('src');
+    inactiveOverlay.style.display = 'flex';
+    cameraActive = false;
+  });
+}
+
 // ── Camera status ────────────────────────────────────────
 socket.on('camera_status', ({ active, reason }) => {
   cameraActive = !!active;
@@ -95,7 +112,7 @@ socket.on('camera_status', ({ active, reason }) => {
     }
     updateStabilityMeter(0);
   } else {
-    btnLabel.textContent = 'ACTIVATE CAMERA';
+    btnLabel.textContent = 'START CAMERA';
     cameraBtn.classList.remove('active');
     const keepResultVisible = reason === 'detected';
     inactiveOverlay.style.display = keepResultVisible ? 'none' : 'flex';
@@ -129,8 +146,8 @@ socket.on('detection_result', ({ faces, status_message, status_level, stability_
 // ── Known face recognised toast ──────────────────────────
 socket.on('known_detected', ({ name, confidence }) => {
   const pct = Math.round((confidence || 0) * 100);
-  showToast(`✓  ${name}  ·  ${pct}%`, 'success', 4500);
-  updateCaptureStatus(`Recognized: ${name}`, 'success');
+  showToast(`${name} recognized at ${pct}%`, 'success', 4500);
+  updateCaptureStatus(`Recognized: ${name}. Clear the result to scan again.`, 'success');
 });
 
 socket.on('capture_status', ({ message, level }) => {

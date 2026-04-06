@@ -1,6 +1,6 @@
 import time
 import platform
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, Optional
@@ -31,8 +31,6 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 config: Dict[str, Any] = load_config()
 face_engine = FaceEngine(
     threshold=config.get("threshold"),
-    recognitionMargin=config.get("recognition_margin"),
-    supportShots=config.get("prototype_support_shots"),
 )
 activity_log = ActivityLog()
 enrollment = EnrollmentController(face_engine, socketio)
@@ -201,10 +199,12 @@ def _camera_loop() -> None:
     session_logged: set = set()    # names already logged this session
     session_toasted: set = set()   # names already toasted this session
     _reset_tracking()
+    using_builtin = bool(config.get("prefer_builtin_camera", True))
+    camera_name = "MacBook camera" if using_builtin else "mobile camera"
     camera_label = (
-        f"Mobile camera selected (index {_active_camera_index}). Center your face."
+        f"{camera_name.capitalize()} selected (index {_active_camera_index}). Center your face."
         if _active_camera_index is not None
-        else "Mobile camera ready. Center your face."
+        else f"{camera_name.capitalize()} ready. Center your face."
     )
     _emit_capture_status(camera_label, "info")
 
@@ -248,7 +248,7 @@ def _camera_loop() -> None:
 
                 is_large_enough = min(bbox["w"], bbox["h"]) >= min_face_size
                 is_aligned, alignment_message = _get_alignment_feedback(frame.shape, bbox)
-                is_stable = _tracking_bbox is not None and _bbox_iou(_tracking_bbox, bbox) >= 0.88
+                is_stable = _tracking_bbox is not None and _bbox_iou(_tracking_bbox, bbox) >= 0.75
                 _tracking_bbox = bbox
 
                 if not is_large_enough:
@@ -264,7 +264,7 @@ def _camera_loop() -> None:
                 elif blur_score < blur_threshold:
                     _stable_frames = 0
                     _stable_face_buffer = []
-                    status_message = "Hold still. The face looks shaky."
+                    status_message = "Hold still for a moment. Image is a bit shaky."
                     status_level = "warn"
                 else:
                     _stable_frames = _stable_frames + 1 if is_stable else 1
@@ -316,7 +316,7 @@ def _camera_loop() -> None:
             "detection_result",
             {
                 "faces": sendable_faces,
-                "frame_ts": datetime.utcnow().isoformat(),
+                "frame_ts": datetime.now(UTC).isoformat(),
                 "status_message": status_message,
                 "status_level": status_level,
                 "stability_progress": stability_progress,
@@ -424,6 +424,15 @@ def api_camera_stop() -> Any:
     _camera_active = False
     _set_camera_active(False, reason="manual")
     return jsonify({"active": False})
+
+
+@app.route("/api/view/clear", methods=["POST"])
+def api_view_clear() -> Any:
+    global _latest_frame
+    _latest_frame = None
+    enrollment.cancel()
+    _reset_tracking()
+    return jsonify({"status": "cleared"})
 
 
 @app.route("/api/camera/status", methods=["GET"])

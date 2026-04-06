@@ -1,16 +1,13 @@
 {
-  "blur_threshold": 75.0,
-  "camera_index": 0,
+  "blur_threshold": 35.0,
+  "camera_index": 1,
   "guide_box_scale": 0.42,
-  "guide_box_tolerance": 0.18,
+  "guide_box_tolerance": 0.26,
   "idle_timeout_seconds": 30,
   "idle_warning_seconds": 10,
-  "min_face_size": 110,
-  "prediction_consensus_frames": 5,
-  "prefer_builtin_camera": false,
-  "prototype_blend": 0.65,
-  "prototype_support_shots": 6,
-  "recognition_margin": 0.05,
-  "stability_frames_required": 4,
-  "threshold": 0.4
+  "min_face_size": 90,
+  "prediction_consensus_frames": 3,
+  "prefer_builtin_camera": true,
+  "stability_frames_required": 2,
+  "threshold": 0.45
 }

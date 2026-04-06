@@ -4,26 +4,41 @@ from typing import Any, Dict
 
 APP_ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = APP_ROOT / "config.json"
+MODEL_METADATA_PATH = APP_ROOT.parent / "models" / "model_metadata.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "idle_timeout_seconds": 30,
     "idle_warning_seconds": 10,
-    "camera_index": 0,
-    "prefer_builtin_camera": False,
-    "stability_frames_required": 4,
-    "prediction_consensus_frames": 5,
-    "blur_threshold": 75.0,
-    "min_face_size": 110,
+    "camera_index": 1,
+    "prefer_builtin_camera": True,
+    "stability_frames_required": 2,
+    "prediction_consensus_frames": 3,
+    "blur_threshold": 35.0,
+    "min_face_size": 90,
     "guide_box_scale": 0.42,
-    "guide_box_tolerance": 0.18,
-    "prototype_support_shots": 6,
-    "recognition_margin": 0.08,
-    "prototype_blend": 0.65,
+    "guide_box_tolerance": 0.26,
 }
+
+
+def _load_model_runtime_defaults() -> Dict[str, Any]:
+    defaults: Dict[str, Any] = {
+        "threshold": 0.45,
+    }
+    if not MODEL_METADATA_PATH.exists():
+        return defaults
+    try:
+        with MODEL_METADATA_PATH.open("r", encoding="utf-8") as file:
+            metadata = json.load(file)
+        if "unknown_threshold" in metadata:
+            defaults["threshold"] = float(metadata["unknown_threshold"])
+    except Exception:
+        return defaults
+    return defaults
 
 
 def _merge_with_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
     merged = DEFAULT_CONFIG.copy()
+    merged.update(_load_model_runtime_defaults())
     for key, value in config.items():
         if key in DEFAULT_CONFIG or key == "threshold":
             merged[key] = value
