@@ -19,6 +19,7 @@ splitDirs = {
 
 modelsDir = projectRoot / "models"
 modelSavePath = modelsDir / "bestModel.pth"
+faceIndexPath = modelsDir / "face_index.npz"
 labelMapPath = modelsDir / "labelMap.json"
 trainingSummaryPath = modelsDir / "training_summary.json"
 datasetMetadataPath = processedDir / "metadata.json"
