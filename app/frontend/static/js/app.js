@@ -42,6 +42,47 @@ function _typewriterTick() {
 }
 _typewriterTick();
 
+// ── Model toggle state ───────────────────────────────────
+let currentModel = 'arcface';
+const modelToggle   = document.getElementById('model-toggle');
+const hudEngine     = document.getElementById('hud-engine');
+
+function setActiveModel(model) {
+  currentModel = model;
+  modelToggle.querySelectorAll('.model-option').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.model === model);
+  });
+  const slider = modelToggle.querySelector('.model-slider');
+  slider.style.transform = model === 'insightface' ? 'translateX(100%)' : 'translateX(0)';
+  if (hudEngine) hudEngine.textContent = model === 'insightface' ? 'InsightFace' : 'ArcFace';
+}
+
+modelToggle.querySelectorAll('.model-option').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const model = btn.dataset.model;
+    if (model === currentModel) return;
+    fetch('/api/model/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_type: model })
+    })
+      .then(r => r.json())
+      .then(result => {
+        if (result.error) {
+          showToast(result.error, 'warning', 3500);
+          return;
+        }
+        setActiveModel(model);
+        showToast(`Switched to ${model === 'insightface' ? 'InsightFace' : 'ArcFace'}`, 'info', 2500);
+      })
+      .catch(() => {});
+  });
+});
+
+socket.on('model_switched', ({ model_type }) => {
+  setActiveModel(model_type);
+});
+
 // ── Config sync ──────────────────────────────────────────
 fetch('/api/config')
   .then(r => r.json())
@@ -53,17 +94,41 @@ fetch('/api/config')
       val.textContent   = parseFloat(cfg.threshold).toFixed(2);
     }
     if (cfg.demo_mode) document.getElementById('demo-banner').classList.add('visible');
+    if (cfg.model_type) setActiveModel(cfg.model_type);
+    // Disable insightface button if not available
+    if (!cfg.insightface_available) {
+      const ifBtn = modelToggle.querySelector('[data-model="insightface"]');
+      if (ifBtn) { ifBtn.disabled = true; ifBtn.title = 'InsightFace library not installed'; }
+    }
   })
   .catch(() => {});
 
 // ── DOM refs ─────────────────────────────────────────────
 const cameraBtn       = document.getElementById('camera-toggle-btn');
+const clearBtn        = document.getElementById('clear-screen-btn');
 const btnLabel        = cameraBtn.querySelector('.btn-label');
 const videoImg        = document.getElementById('video-stream');
 const inactiveOverlay = document.getElementById('camera-inactive');
 const liveBadge       = document.getElementById('live-badge');
 const captureStatus   = document.getElementById('capture-status');
 const stabilityFill   = document.getElementById('stability-fill');
+
+// ── Clear button ─────────────────────────────────────────
+if (clearBtn) {
+  clearBtn.addEventListener('click', () => {
+    if (cameraActive) {
+      fetch('/api/camera/stop', { method: 'POST' }).catch(() => {});
+    }
+    fetch('/api/view/clear', { method: 'POST' }).catch(() => {});
+    drawDetections([]);
+    updateCaptureStatus('Screen cleared. Start the camera when ready.', 'info');
+    updateStabilityMeter(0);
+    videoImg.style.display = 'none';
+    videoImg.removeAttribute('src');
+    inactiveOverlay.style.display = 'flex';
+    cameraActive = false;
+  });
+}
 
 // ── Camera toggle ────────────────────────────────────────
 cameraBtn.addEventListener('click', () => {

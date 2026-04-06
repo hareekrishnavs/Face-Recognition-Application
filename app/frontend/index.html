@@ -30,13 +30,20 @@
 
       <div class="spacer"></div>
 
+      <div class="model-toggle-control">
+        <span class="model-toggle-label">MODEL</span>
+        <div class="model-toggle" id="model-toggle">
+          <button class="model-option active" data-model="arcface">ArcFace</button>
+          <button class="model-option" data-model="insightface">InsightFace</button>
+          <div class="model-slider"></div>
+        </div>
+      </div>
+
       <div class="threshold-control">
         <span class="threshold-label">THRESHOLD</span>
         <input type="range" id="threshold-slider" min="0.40" max="0.95" step="0.01" value="0.65">
         <span id="threshold-value" class="threshold-val">0.65</span>
       </div>
-
-      <button class="settings-btn" title="Settings">⚙</button>
     </nav>
 
     <!-- ── MAIN WORKSPACE ── -->
@@ -59,7 +66,7 @@
           <div id="hud-stats">
             <div class="hud-row">
               <span class="hud-label">ENGINE</span>
-              <span class="hud-val hud-green">● NEURAL</span>
+              <span class="hud-val hud-green" id="hud-engine">ArcFace</span>
             </div>
             <div class="hud-row">
               <span class="hud-label">FPS</span>
@@ -78,10 +85,13 @@
           </div>
         </div>
 
-        <button id="camera-toggle-btn">
-          <span class="btn-icon">▶</span>
-          <span class="btn-label">ACTIVATE CAMERA</span>
-        </button>
+        <div class="camera-actions">
+          <button id="camera-toggle-btn">
+            <span class="btn-icon">▶</span>
+            <span class="btn-label">ACTIVATE CAMERA</span>
+          </button>
+          <button id="clear-screen-btn" class="secondary-btn" type="button">CLEAR RESULT</button>
+        </div>
       </section>
 
       <!-- RIGHT: ACTIVITY LOG -->
