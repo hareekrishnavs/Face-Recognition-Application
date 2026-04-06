@@ -1,31 +1,41 @@
+import torch
 import torch.nn as nn
 
-from utils.config import dropoutRate
+from utils.config import dropoutRate, hiddenDim
 
 
-class SmallCNNClassifier:
+class FaceClassifierCNN(nn.Module):
     def __init__(self, numClasses: int) -> None:
-        self.numClasses = numClasses
-
-    def createModel(self) -> nn.Module:
-        return nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
+        super().__init__()
+        self.features = nn.Sequential(
+            self._conv_block(3, 32),
+            nn.MaxPool2d(2),
+            self._conv_block(32, 64),
+            nn.MaxPool2d(2),
+            self._conv_block(64, 128),
+            nn.MaxPool2d(2),
+            self._conv_block(128, 192),
             nn.AdaptiveAvgPool2d((1, 1)),
+        )
+        self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Dropout(p=dropoutRate),
-            nn.Linear(256, self.numClasses),
+            nn.Dropout(dropoutRate),
+            nn.Linear(192, hiddenDim),
+            nn.BatchNorm1d(hiddenDim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropoutRate * 0.5),
+            nn.Linear(hiddenDim, numClasses),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.features(x))
+
+    def _conv_block(self, inChannels: int, outChannels: int) -> nn.Sequential:
+        return nn.Sequential(
+            nn.Conv2d(inChannels, outChannels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(outChannels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(outChannels, outChannels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(outChannels),
+            nn.ReLU(inplace=True),
         )

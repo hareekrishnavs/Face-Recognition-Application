@@ -11,12 +11,6 @@
 </head>
 <body>
 
-  <!-- Neural network particle canvas (background) -->
-  <canvas id="neural-bg"></canvas>
-
-  <!-- CRT scanline overlay -->
-  <div id="crt-overlay"></div>
-
   <!-- Demo mode banner -->
   <div id="demo-banner">⚠  DEMO MODE — Model not loaded. Using simulated detections.</div>
 
@@ -53,13 +47,13 @@
         <div id="video-container">
           <img id="video-stream" src="" alt="" style="display:none">
           <canvas id="detection-overlay"></canvas>
-          <div class="scan-line"></div>
-
-          <!-- Corner bracket decorations -->
-          <div class="corner tl"></div>
-          <div class="corner tr"></div>
-          <div class="corner bl"></div>
-          <div class="corner br"></div>
+          <div id="face-guide">
+            <div class="guide-frame"></div>
+            <div id="stability-meter">
+              <div id="stability-fill"></div>
+            </div>
+          </div>
+          <div id="capture-status" class="capture-status info">MacBook camera ready.</div>
 
           <!-- HUD stats (visible when camera is active) -->
           <div id="hud-stats">
@@ -79,19 +73,6 @@
 
           <!-- Camera inactive state -->
           <div id="camera-inactive">
-            <!-- Biometric scanner rings -->
-            <div class="bio-scanner">
-              <div class="scanner-ring r1"></div>
-              <div class="scanner-ring r2"></div>
-              <div class="scanner-ring r3"></div>
-              <div class="scanner-arc"></div>
-              <div class="scanner-arc scanner-arc-2"></div>
-              <div class="scanner-dot"></div>
-              <div class="scanner-cross">
-                <div class="cross-h"></div>
-                <div class="cross-v"></div>
-              </div>
-            </div>
             <span class="inactive-label" id="typewriter-text"></span>
             <p class="inactive-sub">Click below to activate face recognition</p>
           </div>
@@ -170,7 +151,6 @@
 
   <div id="toast-container"></div>
 
-  <script src="/static/js/neural.js"></script>
   <script src="/static/js/app.js"></script>
   <script src="/static/js/activity.js"></script>
   <script src="/static/js/gallery.js"></script>

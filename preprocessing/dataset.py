@@ -1,401 +1,396 @@
-import random
+import json
+import math
 import shutil
+import sys
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-import torch
-from facenet_pytorch import MTCNN
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from pillow_heif import register_heif_opener
-from sklearn.model_selection import train_test_split
-from tqdm import tqdm
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.config import (
-    augmentationCounts,
-    deviceName,
+    augmentationPlan,
+    datasetMetadataPath,
+    faceCropMargin,
     imageSize,
-    mtcnnMargin,
-    mtcnnMinFaceSize,
+    minFaceSize,
     outputImageFormat,
     processedDir,
     randomSeed,
     rawDir,
+    splitDirs,
     splitRatios,
     supportedExtensions,
-    testDir,
-    trainDir,
-    valDir,
 )
-
 
 register_heif_opener()
 
 
-@dataclass
+@dataclass(frozen=True)
 class ImageRecord:
-    imagePath: Path
     personName: str
-    imageNumber: int
+    sourcePath: Path
+    sourceStem: str
 
 
 @dataclass
-class ProcessedImageRecord:
-    imageArray: np.ndarray
-    imageName: str
+class CroppedFaceRecord:
+    personName: str
+    sourcePath: Path
+    sourceStem: str
+    faceImage: Image.Image
 
 
-class FacePreprocessor:
+class FaceDatasetPreprocessor:
     def __init__(self) -> None:
-        self.setSeeds()
-        self.device = self.getDevice()
-        self.faceDetector = self.createFaceDetector()
+        self.frontFaceDetector = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+        self.altFaceDetector = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml"
+        )
+        self.profileFaceDetector = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_profileface.xml"
+        )
+        self.rng = np.random.default_rng(randomSeed)
 
-    def setSeeds(self) -> None:
-        random.seed(randomSeed)
-        np.random.seed(randomSeed)
-        torch.manual_seed(randomSeed)
+    def run(self) -> Dict[str, object]:
+        rawRecords = self._collect_records()
+        croppedRecords, skippedCounts = self._extract_faces(rawRecords)
+        splits = self._create_split_map(croppedRecords)
 
-    def getDevice(self) -> torch.device:
-        return torch.device(deviceName)
-
-    def createFaceDetector(self) -> MTCNN:
-        return MTCNN(keep_all=False, device=self.device, margin=mtcnnMargin, min_face_size=mtcnnMinFaceSize, post_process=False,)
-
-    def run(self) -> None:
-        self.prepareOutputDirectories()
-        personDirectories = self.getPersonDirectories()
-
-        print("\nStarting preprocessing...")
-        print(f"Using device: {self.device}")
-        print(f"Raw directory: {rawDir}")
-        print(f"Processed directory: {processedDir}")
-
-        for personDirectory in personDirectories:
-            self.processPersonDirectory(personDirectory)
-
-        print("\nPreprocessing completed successfully.")
-
-    def processPersonDirectory(self, personDirectory: Path) -> None:
-        personName = personDirectory.name
-        print("\n" + "=" * 60)
-        print(f"Processing person: {personName}")
-        print("=" * 60)
-
-        imagePaths = self.getImagePaths(personDirectory)
-        imageRecords = self.buildImageRecords(imagePaths, personName)
-
-        if not imageRecords:
-            print("No valid images found.")
-            return
-
-        processedOriginals = self.processPersonImages(imageRecords)
-
-        if not processedOriginals:
-            print("No valid face crops found. Skipping this person.")
-            return
-
-        splitMap = self.splitImages(processedOriginals)
-        self.printSplitSummary(splitMap, title="Before augmentation")
-
-        splitMap["train"] = self.augmentTrainImages(splitMap["train"])
-        self.printAugmentationSummary(splitMap)
-
-        self.saveSplitImages(personName, splitMap)
-        self.printSavedSummary(personName, splitMap)
-
-    def prepareOutputDirectories(self) -> None:
         if processedDir.exists():
             shutil.rmtree(processedDir)
+        processedDir.mkdir(parents=True, exist_ok=True)
 
-        for splitDirectory in [trainDir, valDir, testDir]:
-            splitDirectory.mkdir(parents=True, exist_ok=True)
+        summary: Dict[str, Dict[str, Dict[str, int]]] = {
+            "raw": defaultdict(dict),
+            "processed": defaultdict(lambda: defaultdict(int)),
+        }
 
-    def getPersonDirectories(self) -> List[Path]:
+        for personName, personRecords in rawRecords.items():
+            summary["raw"][personName]["count"] = len(personRecords)
+
+        for splitName, splitRecords in splits.items():
+            for record in splitRecords:
+                saved = self._save_base_image(splitName, record)
+                if saved is None:
+                    continue
+
+                personSummary = summary["processed"][record.personName]
+                personSummary[f"{splitName}_original"] += 1
+
+                if splitName == "train":
+                    augmentedCount = self._save_augmented_images(saved, record.personName)
+                    personSummary["train_augmented"] += augmentedCount
+
+        manifest = {
+            "image_size": list(imageSize),
+            "split_ratios": splitRatios,
+            "augmentation_plan": augmentationPlan,
+            "splits": {
+                splitName: self._count_split_images(splitDir)
+                for splitName, splitDir in splitDirs.items()
+            },
+            "per_person": {
+                personName: {
+                    "raw_count": summary["raw"][personName].get("count", 0),
+                    "cropped_count": len(croppedRecords.get(personName, [])),
+                    "skipped_no_face": skippedCounts.get(personName, 0),
+                    "train_original": summary["processed"][personName].get("train_original", 0),
+                    "train_augmented": summary["processed"][personName].get("train_augmented", 0),
+                    "val_count": summary["processed"][personName].get("val_original", 0),
+                    "test_count": summary["processed"][personName].get("test_original", 0),
+                }
+                for personName in sorted(rawRecords)
+            },
+        }
+
+        datasetMetadataPath.parent.mkdir(parents=True, exist_ok=True)
+        with datasetMetadataPath.open("w", encoding="utf-8") as file:
+            json.dump(manifest, file, indent=2, sort_keys=True)
+
+        return manifest
+
+    def _collect_records(self) -> Dict[str, List[ImageRecord]]:
         if not rawDir.exists():
-            raise FileNotFoundError(f"Raw directory not found: {rawDir}")
+            raise FileNotFoundError(f"Raw dataset directory not found: {rawDir}")
 
-        return sorted([path for path in rawDir.iterdir() if path.is_dir()])
+        records: Dict[str, List[ImageRecord]] = {}
 
-    def getImagePaths(self, personDirectory: Path) -> List[Path]:
-        imagePaths = []
+        for personDir in sorted(path for path in rawDir.iterdir() if path.is_dir()):
+            personRecords: List[ImageRecord] = []
+            for imagePath in sorted(path for path in personDir.iterdir() if path.is_file()):
+                if imagePath.suffix.lower() not in supportedExtensions and imagePath.suffix:
+                    continue
+                personRecords.append(
+                    ImageRecord(
+                        personName=personDir.name.strip(),
+                        sourcePath=imagePath,
+                        sourceStem=self._normalise_stem(imagePath),
+                    )
+                )
 
-        for imagePath in personDirectory.rglob("*"):
-            if imagePath.is_file() and imagePath.suffix.lower() in supportedExtensions:
-                imagePaths.append(imagePath)
+            if len(personRecords) < 3:
+                raise ValueError(
+                    f"Class '{personDir.name}' needs at least 3 images for train/val/test splits."
+                )
 
-        return sorted(imagePaths)
+            records[personDir.name.strip()] = personRecords
 
-    def buildImageRecords(self, imagePaths: List[Path], personName: str) -> List[ImageRecord]:
-        imageRecords = []
+        if not records:
+            raise ValueError(f"No usable images found in {rawDir}")
 
-        for index, imagePath in enumerate(imagePaths, start=1):
-            imageRecords.append(ImageRecord(imagePath=imagePath, personName=personName, imageNumber=index,))
+        return records
 
-        return imageRecords
+    def _extract_faces(
+        self, records: Dict[str, List[ImageRecord]]
+    ) -> Tuple[Dict[str, List[CroppedFaceRecord]], Dict[str, int]]:
+        croppedRecords: Dict[str, List[CroppedFaceRecord]] = {}
+        skippedCounts: Dict[str, int] = {}
 
-    def processPersonImages(self, imageRecords: List[ImageRecord]) -> List[ProcessedImageRecord]:
-        processedImages = []
-        personName = imageRecords[0].personName if imageRecords else "Unknown"
+        for personName, personRecords in sorted(records.items()):
+            croppedPersonRecords: List[CroppedFaceRecord] = []
+            skipped = 0
 
-        totalImages = len(imageRecords)
-        successCount = 0
-        failedCount = 0
+            for record in personRecords:
+                image = self._read_image(record.sourcePath)
+                if image is None:
+                    skipped += 1
+                    continue
 
-        for imageRecord in tqdm(imageRecords, desc=f"Images for {personName}"):
-            imageArray = self.convertImageFormat(imageRecord.imagePath)
-            if imageArray is None:
-                failedCount += 1
-                continue
+                faceImage = self._extract_face(image)
+                if faceImage is None:
+                    skipped += 1
+                    continue
 
-            faceImage = self.detectAndCropFace(imageArray)
-            if faceImage is None:
-                print(f"No face detected in {imageRecord.imagePath.name}")
-                failedCount += 1
-                continue
+                croppedPersonRecords.append(
+                    CroppedFaceRecord(
+                        personName=record.personName,
+                        sourcePath=record.sourcePath,
+                        sourceStem=record.sourceStem,
+                        faceImage=faceImage,
+                    )
+                )
 
-            resizedImage = self.resizeImage(faceImage)
-            baseName = self.buildBaseName(imageRecord.imageNumber)
+            if len(croppedPersonRecords) < 3:
+                raise ValueError(
+                    f"Class '{personName}' has only {len(croppedPersonRecords)} usable face crops after filtering."
+                )
 
-            processedImages.append(ProcessedImageRecord(imageArray=resizedImage,imageName=baseName,))
-            successCount += 1
+            croppedRecords[personName] = croppedPersonRecords
+            skippedCounts[personName] = skipped
 
-        self.printDetectionSummary(personName=personName, totalImages=totalImages, successCount=successCount, failedCount=failedCount,)
+        return croppedRecords, skippedCounts
 
-        return processedImages
+    def _create_split_map(
+        self, records: Dict[str, List[CroppedFaceRecord]]
+    ) -> Dict[str, List[CroppedFaceRecord]]:
+        splitMap: Dict[str, List[CroppedFaceRecord]] = {"train": [], "val": [], "test": []}
 
-    def convertImageFormat(self, imagePath: Path) -> Optional[np.ndarray]:
+        for personName, personRecords in sorted(records.items()):
+            shuffled = list(personRecords)
+            self.rng.shuffle(shuffled)
+
+            total = len(shuffled)
+            testCount = max(1, int(round(total * splitRatios["test"])))
+            valCount = max(1, int(round(total * splitRatios["val"])))
+            trainCount = total - valCount - testCount
+
+            while trainCount < 2:
+                if valCount > testCount and valCount > 1:
+                    valCount -= 1
+                elif testCount > 1:
+                    testCount -= 1
+                else:
+                    raise ValueError(
+                        f"Not enough images for a valid split in class '{personName}'."
+                    )
+                trainCount = total - valCount - testCount
+
+            splitMap["train"].extend(shuffled[:trainCount])
+            splitMap["val"].extend(shuffled[trainCount : trainCount + valCount])
+            splitMap["test"].extend(shuffled[trainCount + valCount :])
+
+        return splitMap
+
+    def _save_base_image(self, splitName: str, record: CroppedFaceRecord) -> Optional[Path]:
+        destinationDir = splitDirs[splitName] / record.personName
+        destinationDir.mkdir(parents=True, exist_ok=True)
+        destinationPath = destinationDir / f"{record.sourceStem}.{outputImageFormat}"
+        record.faceImage.save(destinationPath, quality=95)
+        return destinationPath
+
+    def _save_augmented_images(self, imagePath: Path, personName: str) -> int:
+        base = Image.open(imagePath).convert("RGB")
+        destinationDir = splitDirs["train"] / personName
+        baseStem = imagePath.stem
+        savedCount = 0
+
+        augmentedImages = self._generate_augmentations(base)
+        for augmentName, image in augmentedImages:
+            destinationPath = destinationDir / f"{baseStem}__{augmentName}.{outputImageFormat}"
+            image.save(destinationPath, quality=95)
+            savedCount += 1
+
+        return savedCount
+
+    def _read_image(self, imagePath: Path) -> Optional[Image.Image]:
         try:
-            pilImage = Image.open(imagePath).convert("RGB")
-            imageArray = np.array(pilImage)
-            return imageArray
-        except Exception as error:
-            print(f"Could not read image: {imagePath.name} | Error: {error}")
+            image = Image.open(imagePath)
+            image = ImageOps.exif_transpose(image).convert("RGB")
+        except Exception:
+            return None
+        return image
+
+    def _extract_face(self, image: Image.Image) -> Optional[Image.Image]:
+        rgb = np.array(image)
+        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        equalized = cv2.equalizeHist(gray)
+        faces = self._detect_faces(equalized)
+        if not faces:
+            faces = self._detect_faces(gray)
+        if not faces:
             return None
 
-    def detectAndCropFace(self, imageArray: np.ndarray) -> Optional[np.ndarray]:
-        try:
-            boxes, probabilities = self.faceDetector.detect(imageArray)
-        except Exception as error:
-            print(f"Face detection failed: {error}")
-            return None
+        x, y, w, h = max(faces, key=lambda box: box[2] * box[3])
+        face = self._crop_with_margin(rgb, x, y, w, h)
+        resized = cv2.resize(face, imageSize, interpolation=cv2.INTER_AREA)
+        return Image.fromarray(resized)
 
-        if boxes is None or len(boxes) == 0:
-            return None
+    def _detect_faces(self, gray: np.ndarray) -> List[Tuple[int, int, int, int]]:
+        detections: List[Tuple[int, int, int, int]] = []
 
-        # Since keep_all=False, boxes is a single box
-        box = boxes[0]
-        probability = probabilities[0] if probabilities is not None else None
-
-        # Accept any detection
-        # if probability is not None and probability < 0.6:
-        #     return None
-
-        x1, y1, x2, y2 = box
-        height, width = imageArray.shape[:2]
-
-        x1 = max(0, int(x1))
-        y1 = max(0, int(y1))
-        x2 = min(width, int(x2))
-        y2 = min(height, int(y2))
-
-        if x2 <= x1 or y2 <= y1:
-            return None
-
-        croppedFace = imageArray[y1:y2, x1:x2]
-
-        if croppedFace.size == 0:
-            return None
-
-        return croppedFace
-
-    def resizeImage(self, imageArray: np.ndarray) -> np.ndarray:
-        return cv2.resize(imageArray, imageSize, interpolation=cv2.INTER_AREA)
-
-    def buildBaseName(self, imageNumber: int) -> str:
-        return f"image_{imageNumber:04d}"
-
-    def splitImages(self,processedImages: List[ProcessedImageRecord],) -> Dict[str, List[ProcessedImageRecord]]:
-        if len(processedImages) < 5:
-            raise ValueError(
-                "Need at least 5 valid processed images per person to split into train, val, and test."
-            )
-
-        trainImages, tempImages = train_test_split(processedImages, train_size=splitRatios["train"], random_state=randomSeed, shuffle=True,)
-
-        valRatioWithinTemp = splitRatios["val"] / (splitRatios["val"] + splitRatios["test"])
-
-        valImages, testImages = train_test_split(tempImages, train_size=valRatioWithinTemp, random_state=randomSeed, shuffle=True,)
-
-        return {"train": trainImages, "val": valImages, "test": testImages,}
-
-    def augmentTrainImages(self, trainImages: List[ProcessedImageRecord],) -> List[ProcessedImageRecord]:
-        augmentedTrainImages = []
-
-        for imageRecord in trainImages:
-            augmentedTrainImages.append(imageRecord)
-
-            augmentedVariants = self.augmentData(imageArray=imageRecord.imageArray,baseName=imageRecord.imageName,)
-            augmentedTrainImages.extend(augmentedVariants)
-
-        return augmentedTrainImages
-
-    def augmentData(self,imageArray: np.ndarray, baseName: str,) -> List[ProcessedImageRecord]:
-        augmentedImages = []
-        augmentedImages.extend(self.createNoiseVariants(imageArray, baseName))
-        augmentedImages.extend(self.createRotateVariants(imageArray, baseName))
-        augmentedImages.extend(self.createFlipVariants(imageArray, baseName))
-        augmentedImages.extend(self.createScaleVariants(imageArray, baseName))
-        augmentedImages.extend(self.createBrightnessVariants(imageArray, baseName))
-        return augmentedImages
-
-    def createNoiseVariants( self, imageArray: np.ndarray, baseName: str,) -> List[ProcessedImageRecord]:
-        variants = []
-
-        for index in range(1, augmentationCounts["noise"] + 1):
-            noise = np.random.normal(0, 10, imageArray.shape).astype(np.float32)
-            noisyImage = np.clip(imageArray.astype(np.float32) + noise, 0, 255).astype(np.uint8)
-
-            variants.append(ProcessedImageRecord(imageArray=noisyImage,imageName=f"{baseName}_noise({index})",))
-
-        return variants
-
-    def createRotateVariants(self, imageArray: np.ndarray, baseName: str,) -> List[ProcessedImageRecord]:
-        variants = []
-        rotationAngles = [-12, 12]
-
-        for index, angle in enumerate(rotationAngles[:augmentationCounts["rotate"]], start=1):
-            height, width = imageArray.shape[:2]
-            center = (width // 2, height // 2)
-
-            rotationMatrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-            rotatedImage = cv2.warpAffine(imageArray, rotationMatrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101,)
-
-            variants.append(ProcessedImageRecord(imageArray=rotatedImage,imageName=f"{baseName}_rotate({index})",))
-
-        return variants
-
-    def createFlipVariants(self,imageArray: np.ndarray,baseName: str,) -> List[ProcessedImageRecord]:
-        variants = []
-        flipCodes = [1, 0]
-
-        for index, flipCode in enumerate(flipCodes[:augmentationCounts["flip"]], start=1):
-            flippedImage = cv2.flip(imageArray, flipCode)
-
-            variants.append(ProcessedImageRecord(imageArray=flippedImage,imageName=f"{baseName}_flip({index})",))
-
-        return variants
-
-    def createScaleVariants(self,imageArray: np.ndarray,baseName: str,) -> List[ProcessedImageRecord]:
-        variants = []
-        scaleFactors = [0.90, 1.10]
-
-        for index, scaleFactor in enumerate(scaleFactors[:augmentationCounts["scale"]], start=1):
-            scaledImage = self.scaleImageKeepSize(imageArray, scaleFactor)
-
-            variants.append(ProcessedImageRecord(imageArray=scaledImage,imageName=f"{baseName}_scale({index})",))
-
-        return variants
-
-    def createBrightnessVariants(self,imageArray: np.ndarray,baseName: str,) -> List[ProcessedImageRecord]:
-        variants = []
-        brightnessFactors = [0.75, 1.25]
-        pilImage = Image.fromarray(imageArray)
-
-        for index, factor in enumerate(
-            brightnessFactors[:augmentationCounts["brightness"]],
-            start=1,
+        for detector, isProfile in (
+            (self.frontFaceDetector, False),
+            (self.altFaceDetector, False),
+            (self.profileFaceDetector, True),
         ):
-            enhancer = ImageEnhance.Brightness(pilImage)
-            adjustedImage = np.array(enhancer.enhance(factor))
+            if detector.empty():
+                continue
 
-            variants.append(ProcessedImageRecord(imageArray=adjustedImage,imageName=f"{baseName}_brightness({index})",))
+            faces = detector.detectMultiScale(
+                gray,
+                scaleFactor=1.08,
+                minNeighbors=5 if not isProfile else 4,
+                minSize=(minFaceSize, minFaceSize),
+            )
+            detections.extend((int(x), int(y), int(w), int(h)) for (x, y, w, h) in faces)
 
-        return variants
+            if isProfile:
+                flipped = cv2.flip(gray, 1)
+                flippedFaces = detector.detectMultiScale(
+                    flipped,
+                    scaleFactor=1.08,
+                    minNeighbors=4,
+                    minSize=(minFaceSize, minFaceSize),
+                )
+                width = gray.shape[1]
+                for (x, y, w, h) in flippedFaces:
+                    detections.append((int(width - x - w), int(y), int(w), int(h)))
 
-    def scaleImageKeepSize(self, imageArray: np.ndarray, scaleFactor: float) -> np.ndarray:
-        height, width = imageArray.shape[:2]
+        return detections
 
-        scaledWidth = max(1, int(width * scaleFactor))
-        scaledHeight = max(1, int(height * scaleFactor))
+    def _crop_with_margin(
+        self, image: np.ndarray, x: int, y: int, w: int, h: int
+    ) -> np.ndarray:
+        imgH, imgW = image.shape[:2]
+        padX = int(math.ceil(w * faceCropMargin))
+        padY = int(math.ceil(h * faceCropMargin))
 
-        resizedImage = cv2.resize(
-            imageArray,
-            (scaledWidth, scaledHeight),
-            interpolation=cv2.INTER_LINEAR,
-        )
+        x1 = max(0, x - padX)
+        y1 = max(0, y - padY)
+        x2 = min(imgW, x + w + padX)
+        y2 = min(imgH, y + h + padY)
+        crop = image[y1:y2, x1:x2]
+        return self._square_center_crop(crop)
 
-        if scaleFactor >= 1.0:
-            startX = (scaledWidth - width) // 2
-            startY = (scaledHeight - height) // 2
-            croppedImage = resizedImage[startY:startY + height, startX:startX + width]
-            return croppedImage
+    def _square_center_crop(self, image: np.ndarray) -> np.ndarray:
+        height, width = image.shape[:2]
+        size = min(height, width)
+        startX = max(0, (width - size) // 2)
+        startY = max(0, (height - size) // 2)
+        return image[startY : startY + size, startX : startX + size]
 
-        canvas = np.zeros_like(imageArray)
-        startX = (width - scaledWidth) // 2
-        startY = (height - scaledHeight) // 2
-        canvas[startY:startY + scaledHeight, startX:startX + scaledWidth] = resizedImage
+    def _generate_augmentations(self, image: Image.Image) -> List[Tuple[str, Image.Image]]:
+        augmentations: List[Tuple[str, Image.Image]] = []
+
+        operations = {
+            "rotate_left": lambda img: img.rotate(-12, resample=Image.BILINEAR, fillcolor=(0, 0, 0)),
+            "rotate_right": lambda img: img.rotate(12, resample=Image.BILINEAR, fillcolor=(0, 0, 0)),
+            "scale_in": lambda img: self._scale_image(img, scale=1.08),
+            "scale_out": lambda img: self._scale_image(img, scale=0.92),
+            "gaussian_noise": self._add_gaussian_noise,
+            "gaussian_blur": lambda img: img.filter(ImageFilter.GaussianBlur(radius=1.1)),
+            "brightness": lambda img: ImageEnhance.Brightness(img).enhance(1.16),
+            "contrast": lambda img: ImageEnhance.Contrast(img).enhance(1.18),
+            "horizontal_flip": ImageOps.mirror,
+        }
+
+        for name, repeats in augmentationPlan.items():
+            operation = operations[name]
+            for index in range(repeats):
+                augmented = operation(image.copy()).resize(imageSize)
+                suffix = name if repeats == 1 else f"{name}_{index + 1}"
+                augmentations.append((suffix, augmented))
+
+        return augmentations
+
+    def _scale_image(self, image: Image.Image, scale: float) -> Image.Image:
+        width, height = image.size
+        scaledW = max(8, int(round(width * scale)))
+        scaledH = max(8, int(round(height * scale)))
+        scaled = image.resize((scaledW, scaledH), resample=Image.BILINEAR)
+
+        if scale >= 1.0:
+            left = max(0, (scaledW - width) // 2)
+            top = max(0, (scaledH - height) // 2)
+            return scaled.crop((left, top, left + width, top + height))
+
+        canvas = Image.new("RGB", (width, height))
+        left = max(0, (width - scaledW) // 2)
+        top = max(0, (height - scaledH) // 2)
+        canvas.paste(scaled, (left, top))
         return canvas
 
-    def saveSplitImages(self,personName: str,splitMap: Dict[str, List[ProcessedImageRecord]],) -> None:
-        splitDirectoryMap = {"train": trainDir, "val": valDir, "test": testDir,}
+    def _add_gaussian_noise(self, image: Image.Image) -> Image.Image:
+        array = np.asarray(image).astype(np.float32)
+        noisy = array + self.rng.normal(0.0, 8.0, size=array.shape)
+        return Image.fromarray(np.clip(noisy, 0, 255).astype(np.uint8))
 
-        for splitName, imageRecords in splitMap.items():
-            personOutputDir = splitDirectoryMap[splitName] / personName
-            personOutputDir.mkdir(parents=True, exist_ok=True)
+    def _count_split_images(self, splitDir: Path) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        if not splitDir.exists():
+            return counts
 
-            for imageRecord in imageRecords:
-                outputPath = personOutputDir / f"{imageRecord.imageName}.{outputImageFormat}"
-                self.saveImage(imageRecord.imageArray, outputPath)
+        for personDir in sorted(path for path in splitDir.iterdir() if path.is_dir()):
+            counts[personDir.name] = len([path for path in personDir.iterdir() if path.is_file()])
+        return counts
 
-    def saveImage(self, imageArray: np.ndarray, outputPath: Path) -> None:
-        pilImage = Image.fromarray(imageArray)
+    def _count_person_images(self, splitName: str, personName: str) -> int:
+        personDir = splitDirs[splitName] / personName
+        if not personDir.exists():
+            return 0
+        return len([path for path in personDir.iterdir() if path.is_file()])
 
-        formatMap = {"jpg": "JPEG","jpeg": "JPEG","png": "PNG",}
-
-        formatName = formatMap.get(outputImageFormat.lower(), outputImageFormat.upper())
-        pilImage.save(outputPath, format=formatName, quality=95)
-
-    def printDetectionSummary(self, personName: str, totalImages: int, successCount: int, failedCount: int,) -> None:
-        successRate = (successCount / totalImages * 100.0) if totalImages > 0 else 0.0
-
-        print(f"\nSelection summary for {personName}:")
-        print(f"  Total images found   : {totalImages}")
-        print(f"  Faces selected       : {successCount}")
-        print(f"  Images skipped       : {failedCount}")
-        print(f"  Selection rate       : {successRate:.2f}%")
-
-    def printSplitSummary(self, splitMap: Dict[str, List[ProcessedImageRecord]], title: str,) -> None:
-        print(f"\n{title}:")
-        print(f"  Train originals      : {len(splitMap['train'])}")
-        print(f"  Val originals        : {len(splitMap['val'])}")
-        print(f"  Test originals       : {len(splitMap['test'])}")
-
-    def printAugmentationSummary(self, splitMap: Dict[str, List[ProcessedImageRecord]],) -> None:
-        print("\nAfter augmentation:")
-        print(f"  Train total          : {len(splitMap['train'])}")
-        print(f"  Val total            : {len(splitMap['val'])}")
-        print(f"  Test total           : {len(splitMap['test'])}")
-
-    def printSavedSummary(self, personName: str, splitMap: Dict[str, List[ProcessedImageRecord]],) -> None:
-        totalSaved = (
-            len(splitMap["train"]) +
-            len(splitMap["val"]) +
-            len(splitMap["test"])
-        )
-
-        print(f"\nSaved output for {personName}:")
-        print(f"  Train saved          : {len(splitMap['train'])}")
-        print(f"  Val saved            : {len(splitMap['val'])}")
-        print(f"  Test saved           : {len(splitMap['test'])}")
-        print(f"  Total saved          : {totalSaved}")
+    def _normalise_stem(self, imagePath: Path) -> str:
+        stem = imagePath.stem or imagePath.name
+        cleaned = "".join(char if char.isalnum() else "_" for char in stem).strip("_")
+        return cleaned.lower() or "image"
 
 
 def main() -> None:
-    facePreprocessor = FacePreprocessor()
-    facePreprocessor.run()
+    summary = FaceDatasetPreprocessor().run()
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

@@ -9,10 +9,10 @@ const hudStats = document.getElementById('hud-stats');
 
 // ── Typewriter for inactive state ─────────────────────────
 const TYPEWRITER_PHRASES = [
-  'INITIALIZING NEURAL SCAN…',
-  'AWAITING BIOMETRIC INPUT…',
-  'FACE RECOGNITION READY…',
-  'SYSTEM STANDBY…',
+  'Face recognition ready',
+  'Camera waiting for a face',
+  'Stand still for a clear capture',
+  'Ready to identify',
 ];
 let _twPhrase = 0, _twChar = 0, _twDeleting = false, _twTimer = null;
 const _twEl = document.getElementById('typewriter-text');
@@ -61,8 +61,9 @@ const cameraBtn       = document.getElementById('camera-toggle-btn');
 const btnLabel        = cameraBtn.querySelector('.btn-label');
 const videoImg        = document.getElementById('video-stream');
 const inactiveOverlay = document.getElementById('camera-inactive');
-const scanLine        = document.querySelector('.scan-line');
 const liveBadge       = document.getElementById('live-badge');
+const captureStatus   = document.getElementById('capture-status');
+const stabilityFill   = document.getElementById('stability-fill');
 
 // ── Camera toggle ────────────────────────────────────────
 cameraBtn.addEventListener('click', () => {
@@ -77,34 +78,39 @@ cameraBtn.addEventListener('click', () => {
 });
 
 // ── Camera status ────────────────────────────────────────
-socket.on('camera_status', ({ active }) => {
+socket.on('camera_status', ({ active, reason }) => {
   cameraActive = !!active;
   if (active) {
     btnLabel.textContent = 'STOP CAMERA';
     cameraBtn.classList.add('active');
     inactiveOverlay.style.display = 'none';
-    scanLine.classList.add('active');
     liveBadge.classList.add('active');
     if (hudStats) hudStats.style.opacity = '1';
     _scanCount = 0;
     if (hudScans) hudScans.textContent = '0';
     if (hudFps) hudFps.textContent = '--';
+    if (captureStatus) {
+      captureStatus.textContent = 'Center your face in the frame.';
+      captureStatus.className = 'capture-status info';
+    }
+    updateStabilityMeter(0);
   } else {
     btnLabel.textContent = 'ACTIVATE CAMERA';
     cameraBtn.classList.remove('active');
-    inactiveOverlay.style.display = 'flex';
-    videoImg.style.display = 'none';
-    scanLine.classList.remove('active');
+    const keepResultVisible = reason === 'detected';
+    inactiveOverlay.style.display = keepResultVisible ? 'none' : 'flex';
+    videoImg.style.display = keepResultVisible ? 'block' : 'none';
     liveBadge.classList.remove('active');
     if (hudStats) hudStats.style.opacity = '0';
+    if (!keepResultVisible) updateStabilityMeter(0);
   }
 });
 
 // ── Detection results → canvas + HUD ─────────────────────
-socket.on('detection_result', ({ faces }) => {
-  // Only draw bounding boxes for faces above threshold (is_known = true)
-  const recognised = (faces || []).filter(f => f.is_known);
-  drawDetections(recognised);
+socket.on('detection_result', ({ faces, status_message, status_level, stability_progress }) => {
+  drawDetections(faces || []);
+  updateCaptureStatus(status_message, status_level);
+  updateStabilityMeter(stability_progress || 0);
 
   // FPS
   const now = performance.now();
@@ -124,6 +130,11 @@ socket.on('detection_result', ({ faces }) => {
 socket.on('known_detected', ({ name, confidence }) => {
   const pct = Math.round((confidence || 0) * 100);
   showToast(`✓  ${name}  ·  ${pct}%`, 'success', 4500);
+  updateCaptureStatus(`Recognized: ${name}`, 'success');
+});
+
+socket.on('capture_status', ({ message, level }) => {
+  updateCaptureStatus(message, level);
 });
 
 // ── Canvas overlay ───────────────────────────────────────
@@ -162,7 +173,7 @@ function drawDetections(faces) {
 
     // Label pill
     ctx.shadowBlur = 0;
-    const label    = `${is_known ? name : 'Unknown'}  ${Math.round(confidence * 100)}%`;
+    const label = is_known ? `${name}` : `Unknown`;
     const fontSize = 11;
     ctx.font       = `600 ${fontSize}px 'JetBrains Mono', monospace`;
     const tw = ctx.measureText(label).width;
@@ -209,3 +220,15 @@ function showToast(message, type = 'info', duration = 3500) {
   setTimeout(() => t.remove(), duration);
 }
 window.showToast = showToast;
+
+function updateCaptureStatus(message, level = 'info') {
+  if (!captureStatus || !message) return;
+  captureStatus.textContent = message;
+  captureStatus.className = `capture-status ${level}`;
+}
+
+function updateStabilityMeter(progress) {
+  if (!stabilityFill) return;
+  const safeProgress = Math.max(0, Math.min(1, progress));
+  stabilityFill.style.width = `${safeProgress * 100}%`;
+}

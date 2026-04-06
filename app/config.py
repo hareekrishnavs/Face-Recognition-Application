@@ -6,17 +6,26 @@ APP_ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = APP_ROOT / "config.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "threshold": 0.65,
     "idle_timeout_seconds": 30,
     "idle_warning_seconds": 10,
     "camera_index": 0,
+    "prefer_builtin_camera": False,
+    "stability_frames_required": 4,
+    "prediction_consensus_frames": 5,
+    "blur_threshold": 75.0,
+    "min_face_size": 110,
+    "guide_box_scale": 0.42,
+    "guide_box_tolerance": 0.18,
+    "prototype_support_shots": 6,
+    "recognition_margin": 0.08,
+    "prototype_blend": 0.65,
 }
 
 
 def _merge_with_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
     merged = DEFAULT_CONFIG.copy()
     for key, value in config.items():
-        if key in DEFAULT_CONFIG:
+        if key in DEFAULT_CONFIG or key == "threshold":
             merged[key] = value
     return merged
 
@@ -44,4 +53,4 @@ def save_config(config: Dict[str, Any]) -> None:
 
 
 def get_threshold() -> float:
-    return float(load_config().get("threshold", DEFAULT_CONFIG["threshold"]))
+    return float(load_config().get("threshold", 0.62))

@@ -4,8 +4,8 @@ venv/
 env/
 
 # Dataset images (excluded — too large; run preprocessing to regenerate)
-data/raw/
-data/processed/
+dataset/raw/
+dataset/processed/
 
 # Python cache
 __pycache__/

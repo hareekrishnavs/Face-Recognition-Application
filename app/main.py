@@ -1,4 +1,5 @@
 import time
+import platform
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -28,7 +29,11 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 # Global singletons
 config: Dict[str, Any] = load_config()
-face_engine = FaceEngine(threshold=float(config.get("threshold", 0.65)))
+face_engine = FaceEngine(
+    threshold=config.get("threshold"),
+    recognitionMargin=config.get("recognition_margin"),
+    supportShots=config.get("prototype_support_shots"),
+)
 activity_log = ActivityLog()
 enrollment = EnrollmentController(face_engine, socketio)
 
@@ -40,6 +45,70 @@ _camera_capture: Optional[Any] = None
 _latest_frame: Optional[Any] = None
 _idle_deadline: Optional[float] = None
 _idle_warning_sent: bool = False
+_tracking_bbox: Optional[Dict[str, int]] = None
+_stable_frames: int = 0
+_stable_face_buffer: list = []
+_active_camera_index: Optional[int] = None
+
+
+def _reset_tracking() -> None:
+    global _tracking_bbox, _stable_frames, _stable_face_buffer
+    _tracking_bbox = None
+    _stable_frames = 0
+    _stable_face_buffer = []
+
+
+def _bbox_iou(first: Dict[str, int], second: Dict[str, int]) -> float:
+    x1 = max(first["x"], second["x"])
+    y1 = max(first["y"], second["y"])
+    x2 = min(first["x"] + first["w"], second["x"] + second["w"])
+    y2 = min(first["y"] + first["h"], second["y"] + second["h"])
+    if x2 <= x1 or y2 <= y1:
+        return 0.0
+
+    intersection = float((x2 - x1) * (y2 - y1))
+    first_area = float(first["w"] * first["h"])
+    second_area = float(second["w"] * second["h"])
+    union = max(1.0, first_area + second_area - intersection)
+    return intersection / union
+
+
+def _emit_capture_status(message: str, level: str = "info") -> None:
+    socketio.emit("capture_status", {"message": message, "level": level})
+
+
+def _get_alignment_feedback(
+    frame_shape: tuple[int, int, int],
+    bbox: Dict[str, int],
+) -> tuple[bool, str]:
+    frame_height, frame_width = frame_shape[:2]
+    guide_scale = float(config.get("guide_box_scale", 0.42))
+    tolerance = float(config.get("guide_box_tolerance", 0.18))
+
+    guide_width = frame_width * guide_scale
+    guide_height = frame_height * guide_scale
+    guide_center_x = frame_width / 2.0
+    guide_center_y = frame_height / 2.0
+
+    face_center_x = bbox["x"] + (bbox["w"] / 2.0)
+    face_center_y = bbox["y"] + (bbox["h"] / 2.0)
+
+    max_offset_x = guide_width * tolerance
+    max_offset_y = guide_height * tolerance
+
+    offset_x = face_center_x - guide_center_x
+    offset_y = face_center_y - guide_center_y
+
+    if offset_x < -max_offset_x:
+        return False, "Move slightly right."
+    if offset_x > max_offset_x:
+        return False, "Move slightly left."
+    if offset_y < -max_offset_y:
+        return False, "Move slightly down."
+    if offset_y > max_offset_y:
+        return False, "Move slightly up."
+
+    return True, "Face aligned. Hold still."
 
 
 # ---------------------------------------------------------------------------
@@ -63,24 +132,59 @@ def _set_camera_active(active: bool, reason: Optional[str] = None) -> None:
 
 
 def _open_camera() -> bool:
-    global _camera_capture
+    global _camera_capture, _active_camera_index
     if _camera_capture is not None:
         return True
 
-    index = int(config.get("camera_index", 0))
-    cap = cv2.VideoCapture(index)
+    configured_index = int(config.get("camera_index", 1))
+    prefer_builtin = bool(config.get("prefer_builtin_camera", True))
+
+    candidate_indices = [configured_index]
+    if platform.system() == "Darwin":
+        preferred_order = [1, 0, 2, 3, 4] if prefer_builtin else [0, 1, 2, 3, 4]
+        candidate_indices = []
+        for index in preferred_order:
+            if index not in candidate_indices:
+                candidate_indices.append(index)
+        if configured_index not in candidate_indices:
+            candidate_indices.insert(0, configured_index)
+
+    cap = None
+    chosen_index = None
+    for index in candidate_indices:
+        captureCandidates = []
+        if platform.system() == "Darwin":
+            captureCandidates.append(cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION))
+        captureCandidates.append(cv2.VideoCapture(index))
+
+        for candidate in captureCandidates:
+            if candidate.isOpened():
+                cap = candidate
+                chosen_index = index
+                break
+            candidate.release()
+        if cap is not None:
+            break
+
+    if cap is None:
+        return False
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     if not cap.isOpened():
         return False
 
     _camera_capture = cap
+    _active_camera_index = chosen_index
     return True
 
 
 def _release_camera() -> None:
-    global _camera_capture
+    global _camera_capture, _active_camera_index
     if _camera_capture is not None:
         _camera_capture.release()
         _camera_capture = None
+    _active_camera_index = None
 
 
 def _camera_loop() -> None:
@@ -92,10 +196,17 @@ def _camera_loop() -> None:
     - Emits known_detected toast ONCE per person per session.
     - Triggers enrollment panel once per unknown face.
     """
-    global _camera_active, _latest_frame
+    global _camera_active, _latest_frame, _tracking_bbox, _stable_frames, _stable_face_buffer
 
     session_logged: set = set()    # names already logged this session
     session_toasted: set = set()   # names already toasted this session
+    _reset_tracking()
+    camera_label = (
+        f"Mobile camera selected (index {_active_camera_index}). Center your face."
+        if _active_camera_index is not None
+        else "Mobile camera ready. Center your face."
+    )
+    _emit_capture_status(camera_label, "info")
 
     while _camera_active:
         with _camera_lock:
@@ -111,12 +222,80 @@ def _camera_loop() -> None:
         _latest_frame = frame
         now = time.time()
 
-        # ── Run face engine ──────────────────────────────────────────
-        detections = face_engine.process_frame(frame)
+        raw_detections = face_engine.detect_faces(frame)
+        selected_detection = None
+        status_message = "Center your face in the frame."
+        status_level = "info"
+        stability_progress = 0.0
 
-        # ── Build payload (strip internal blobs) ────────────────────
+        if raw_detections:
+            if len(raw_detections) > 1:
+                _reset_tracking()
+                selected_detection = max(
+                    raw_detections,
+                    key=lambda det: int(det["bbox"]["w"]) * int(det["bbox"]["h"]),
+                )
+                status_message = "Only one face should be in the frame."
+                status_level = "warn"
+            else:
+                selected_detection = raw_detections[0]
+                bbox = selected_detection["bbox"]
+                face_bgr = selected_detection.get("face_bgr")
+                blur_score = float(selected_detection.get("blur_score", 0.0))
+                min_face_size = int(config.get("min_face_size", 110))
+                stable_target = int(config.get("stability_frames_required", 4))
+                blur_threshold = float(config.get("blur_threshold", 75.0))
+
+                is_large_enough = min(bbox["w"], bbox["h"]) >= min_face_size
+                is_aligned, alignment_message = _get_alignment_feedback(frame.shape, bbox)
+                is_stable = _tracking_bbox is not None and _bbox_iou(_tracking_bbox, bbox) >= 0.88
+                _tracking_bbox = bbox
+
+                if not is_large_enough:
+                    _stable_frames = 0
+                    _stable_face_buffer = []
+                    status_message = "Move a little closer to the camera."
+                    status_level = "warn"
+                elif not is_aligned:
+                    _stable_frames = 0
+                    _stable_face_buffer = []
+                    status_message = alignment_message
+                    status_level = "warn"
+                elif blur_score < blur_threshold:
+                    _stable_frames = 0
+                    _stable_face_buffer = []
+                    status_message = "Hold still. The face looks shaky."
+                    status_level = "warn"
+                else:
+                    _stable_frames = _stable_frames + 1 if is_stable else 1
+                    if is_stable and face_bgr is not None:
+                        _stable_face_buffer.append(face_bgr.copy())
+                    elif face_bgr is not None:
+                        _stable_face_buffer = [face_bgr.copy()]
+
+                    consensus_frames = int(config.get("prediction_consensus_frames", 5))
+                    if len(_stable_face_buffer) > consensus_frames:
+                        _stable_face_buffer = _stable_face_buffer[-consensus_frames:]
+
+                    stability_progress = min(1.0, _stable_frames / max(1, stable_target))
+                    if _stable_frames < stable_target or len(_stable_face_buffer) < consensus_frames:
+                        status_message = f"{alignment_message} {_stable_frames}/{stable_target}"
+                        status_level = "info"
+                    else:
+                        status_message = "Face captured. Predicting..."
+                        status_level = "success"
+                        stability_progress = 1.0
+                        prediction = face_engine.predict_faces(_stable_face_buffer)
+                        selected_detection = {**selected_detection, **prediction}
+        else:
+            _reset_tracking()
+            status_message = "Center your face in the frame."
+            status_level = "info"
+
+        _emit_capture_status(status_message, status_level)
+
         sendable_faces = []
-        for det in detections:
+        for det in ([selected_detection] if selected_detection else []):
             name       = det.get("name") or "Unknown"
             is_known   = bool(det.get("is_known"))
             confidence = float(det.get("confidence", 0.0))
@@ -126,45 +305,46 @@ def _camera_loop() -> None:
                  "bbox": bbox, "is_known": is_known}
             )
 
-            # Log — ONCE per session per unique name
-            log_key = name if is_known else "Unknown"
-            if log_key not in session_logged:
-                session_logged.add(log_key)
-                record = activity_log.log(name, confidence, is_known)
-                socketio.emit("log_entry", record)
+            if "is_known" in det:
+                log_key = name if is_known else "Unknown"
+                if log_key not in session_logged:
+                    session_logged.add(log_key)
+                    record = activity_log.log(name, confidence, is_known)
+                    socketio.emit("log_entry", record)
 
-        # ── Canvas overlay ───────────────────────────────────────────
-        # Only send known (above-threshold) faces to the canvas.
-        # Unknown faces are still logged and trigger enrollment but are
-        # not drawn — satisfying: "recognise only if confidence >= threshold".
-        canvas_faces = [f for f in sendable_faces if f["is_known"]]
         socketio.emit(
             "detection_result",
-            {"faces": canvas_faces, "frame_ts": datetime.utcnow().isoformat()},
+            {
+                "faces": sendable_faces,
+                "frame_ts": datetime.utcnow().isoformat(),
+                "status_message": status_message,
+                "status_level": status_level,
+                "stability_progress": stability_progress,
+            },
         )
 
-        if detections:
-            # Known-face toast — ONCE per session per person
-            known_faces = [d for d in detections if d.get("is_known")]
-            if known_faces:
-                kname = known_faces[0].get("name")
+        if selected_detection and "is_known" in selected_detection:
+            if selected_detection.get("is_known"):
+                kname = selected_detection.get("name")
                 if kname not in session_toasted:
                     session_toasted.add(kname)
                     socketio.emit(
                         "known_detected",
                         {
                             "name": kname,
-                            "confidence": float(known_faces[0].get("confidence", 0.0)),
+                            "confidence": float(selected_detection.get("confidence", 0.0)),
                         },
                     )
+                _set_camera_active(False, reason="detected")
+                break
 
-            # Enrollment panel — only fires when enrollment state is idle
-            enrollment.on_frame_processed(frame, detections)
+            enrollment.on_frame_processed(frame, [selected_detection])
 
         time.sleep(0.03)
 
     # ── Cleanup ──────────────────────────────────────────────────────
     _release_camera()
+    _reset_tracking()
     if _camera_active:
         _set_camera_active(False, reason="manual")
 
@@ -330,6 +510,7 @@ def api_enroll_cancel() -> Any:
 @app.route("/api/config", methods=["GET"])
 def api_config_get() -> Any:
     cfg = load_config()
+    cfg["threshold"] = float(face_engine.threshold)
     cfg["demo_mode"] = bool(face_engine.demo_mode)
     return jsonify(cfg)
 
