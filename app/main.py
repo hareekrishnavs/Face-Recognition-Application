@@ -1,6 +1,6 @@
 import time
 import platform
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, Optional
@@ -316,7 +316,7 @@ def _camera_loop() -> None:
             "detection_result",
             {
                 "faces": sendable_faces,
-                "frame_ts": datetime.utcnow().isoformat(),
+                "frame_ts": datetime.now(timezone.utc).isoformat(),
                 "status_message": status_message,
                 "status_level": status_level,
                 "stability_progress": stability_progress,
@@ -507,11 +507,40 @@ def api_enroll_cancel() -> Any:
     return jsonify({"status": "cancelled"})
 
 
+@app.route("/api/model/switch", methods=["POST"])
+def api_model_switch() -> Any:
+    data = request.get_json(silent=True) or {}
+    model_type = str(data.get("model_type", "")).strip().lower()
+    result = face_engine.switch_model(model_type)
+    if "error" not in result:
+        socketio.emit("model_switched", result)
+    return jsonify(result)
+
+
+@app.route("/api/model/info", methods=["GET"])
+def api_model_info() -> Any:
+    return jsonify(face_engine.get_model_info())
+
+
+@app.route("/api/view/clear", methods=["POST"])
+def api_view_clear() -> Any:
+    global _latest_frame
+    _latest_frame = None
+    enrollment.cancel()
+    _reset_tracking()
+    return jsonify({"status": "cleared"})
+
+
 @app.route("/api/config", methods=["GET"])
 def api_config_get() -> Any:
     cfg = load_config()
     cfg["threshold"] = float(face_engine.threshold)
-    cfg["demo_mode"] = bool(face_engine.demo_mode)
+    cfg["demo_mode"] = bool(face_engine._check_demo_mode())
+    cfg["model_type"] = face_engine.model_type
+    model_info = face_engine.get_model_info()
+    cfg["arcface_loaded"] = model_info["arcface_loaded"]
+    cfg["insightface_loaded"] = model_info["insightface_loaded"]
+    cfg["insightface_available"] = model_info["insightface_available"]
     return jsonify(cfg)
 
 
@@ -556,10 +585,18 @@ def sio_set_threshold(value: Any) -> None:
     save_config(config)
 
 
+@socketio.on("switch_model")
+def sio_switch_model(data: Any) -> None:
+    model_type = str(data.get("model_type", "")).strip().lower() if isinstance(data, dict) else str(data)
+    result = face_engine.switch_model(model_type)
+    if "error" not in result:
+        socketio.emit("model_switched", result)
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=5001, debug=True)
+    socketio.run(app, host="0.0.0.0", port=5001, debug=True, allow_unsafe_werkzeug=True)
