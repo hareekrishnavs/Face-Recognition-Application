@@ -6,6 +6,7 @@ env/
 # Dataset images (excluded — too large; run preprocessing to regenerate)
 dataset/raw/
 dataset/processed/
+dataset/captured/
 
 # Python cache
 __pycache__/
