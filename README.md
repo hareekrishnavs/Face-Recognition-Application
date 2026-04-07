@@ -71,6 +71,8 @@ Face-Recognition-Application/
 
 ## Setup
 
+Clone this repository main branch
+
 ### Prerequisites
 
 - Python 3.10+
