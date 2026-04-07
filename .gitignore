@@ -1,5 +1,38 @@
+# Virtual environment
 venv/
+.venv/
+env/
+
+# Dataset images (excluded — too large; run preprocessing to regenerate)
+dataset/raw/
+dataset/processed/
+dataset/captured/
+
+# Python cache
 __pycache__/
 *.pyc
-venv
-dataset/
+*.pyo
+*.pyd
+
+# SQLite database (runtime artifact)
+*.db
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Training checkpoints (keep only bestModel.pth)
+training/checkpoints/
+training/runs/
+
+# Screenshots and pictures
+Screenshot/
+Screenshot.zip
+Pictures/
+pictures/

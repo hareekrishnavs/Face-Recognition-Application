@@ -1,0 +1,16 @@
+{
+  "image_size": [
+    160,
+    160
+  ],
+  "class_names": [
+    "Haree",
+    "HariHaran",
+    "Harsha",
+    "Jacob",
+    "Jousha"
+  ],
+  "inference_mode": "classification",
+  "unknown_threshold": 0.65,
+  "recognition_margin": 0.12
+}
