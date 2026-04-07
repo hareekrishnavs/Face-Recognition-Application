@@ -96,6 +96,18 @@ body::before {
 }
 #demo-banner.visible { display:block; }
 
+/* Training status banner */
+#training-banner {
+  display:none; padding:7px 24px; text-align:center;
+  background: linear-gradient(90deg,rgba(99,102,241,0.10),rgba(99,102,241,0.05));
+  border-bottom:1px solid rgba(99,102,241,0.25);
+  font-family:'JetBrains Mono',monospace; font-size:11px;
+  letter-spacing:0.10em; color:#818cf8;
+}
+#training-banner.visible { display:block; }
+#training-banner.done { color:#34d399; background:linear-gradient(90deg,rgba(52,211,153,0.08),rgba(52,211,153,0.03)); border-bottom-color:rgba(52,211,153,0.22); }
+#training-banner.error { color:#f87171; background:linear-gradient(90deg,rgba(248,113,113,0.08),rgba(248,113,113,0.03)); border-bottom-color:rgba(248,113,113,0.22); }
+
 /* ═══════════════════════════════════════════════════════════
    TOP NAV
    ═══════════════════════════════════════════════════════════ */

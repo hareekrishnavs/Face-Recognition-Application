@@ -202,6 +202,24 @@ socket.on('capture_status', ({ message, level }) => {
   updateCaptureStatus(message, level);
 });
 
+// ── InsightFace background training status ────────────────
+const _trainingBanner = document.getElementById('training-banner');
+let _trainingDoneTimer = null;
+
+socket.on('training_status', ({ status, message }) => {
+  if (!_trainingBanner) return;
+  clearTimeout(_trainingDoneTimer);
+  _trainingBanner.textContent = message;
+  _trainingBanner.className = '';
+  _trainingBanner.classList.add('visible');
+  if (status === 'done' || status === 'error') {
+    _trainingBanner.classList.add(status === 'done' ? 'done' : 'error');
+    _trainingDoneTimer = setTimeout(() => {
+      _trainingBanner.classList.remove('visible', 'done', 'error');
+    }, 4000);
+  }
+});
+
 // ── Canvas overlay ───────────────────────────────────────
 function drawDetections(faces) {
   const canvas = document.getElementById('detection-overlay');
