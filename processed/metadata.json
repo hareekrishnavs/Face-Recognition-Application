@@ -1,0 +1,93 @@
+{
+  "augmentation_plan": {
+    "brightness": 1,
+    "contrast": 1,
+    "gaussian_blur": 1,
+    "gaussian_noise": 1,
+    "horizontal_flip": 1,
+    "rotate_left": 1,
+    "rotate_right": 1,
+    "scale_in": 1,
+    "scale_out": 1
+  },
+  "image_size": [
+    160,
+    160
+  ],
+  "per_person": {
+    "Haree": {
+      "cropped_count": 18,
+      "raw_count": 18,
+      "skipped_no_face": 0,
+      "test_count": 2,
+      "train_augmented": 126,
+      "train_original": 14,
+      "val_count": 2
+    },
+    "HariHaran": {
+      "cropped_count": 31,
+      "raw_count": 32,
+      "skipped_no_face": 1,
+      "test_count": 3,
+      "train_augmented": 225,
+      "train_original": 25,
+      "val_count": 3
+    },
+    "Harsha": {
+      "cropped_count": 22,
+      "raw_count": 25,
+      "skipped_no_face": 3,
+      "test_count": 2,
+      "train_augmented": 162,
+      "train_original": 18,
+      "val_count": 2
+    },
+    "Jacob": {
+      "cropped_count": 9,
+      "raw_count": 10,
+      "skipped_no_face": 1,
+      "test_count": 1,
+      "train_augmented": 63,
+      "train_original": 7,
+      "val_count": 1
+    },
+    "Jousha": {
+      "cropped_count": 37,
+      "raw_count": 37,
+      "skipped_no_face": 0,
+      "test_count": 4,
+      "train_augmented": 261,
+      "train_original": 29,
+      "val_count": 4
+    }
+  },
+  "preprocessing_version": 2,
+  "split_ratios": {
+    "test": 0.1,
+    "train": 0.8,
+    "val": 0.1
+  },
+  "splits": {
+    "test": {
+      "Haree": 2,
+      "HariHaran": 3,
+      "Harsha": 2,
+      "Jacob": 1,
+      "Jousha": 4
+    },
+    "train": {
+      "Haree": 140,
+      "HariHaran": 250,
+      "Harsha": 180,
+      "Jacob": 70,
+      "Jousha": 290
+    },
+    "val": {
+      "Haree": 2,
+      "HariHaran": 3,
+      "Harsha": 2,
+      "Jacob": 1,
+      "Jousha": 4
+    }
+  }
+}
