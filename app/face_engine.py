@@ -152,13 +152,9 @@ class FaceEngine:
             self.insightface_backend = None
 
     def _load_insightface_index(self) -> None:
-        if not FACE_INDEX_PATH.exists() or not LABEL_MAP_PATH.exists():
+        if not FACE_INDEX_PATH.exists():
             return
         try:
-            with LABEL_MAP_PATH.open("r", encoding="utf-8") as file:
-                rawMap = json.load(file)
-            label_map = {int(key): value for key, value in rawMap.items()}
-
             index = np.load(FACE_INDEX_PATH, allow_pickle=False)
             self.classNames = [str(name) for name in index["class_names"].tolist()]
             self.prototypes = index["prototypes"].astype(np.float32)
@@ -166,7 +162,7 @@ class FaceEngine:
             self.sampleLabels = index["sample_labels"].astype(np.int64)
 
             if self.model_type == "insightface":
-                self.labelMap = label_map
+                self.labelMap = {i: name for i, name in enumerate(self.classNames)}
                 self._refresh_sample_images()
         except Exception as exc:
             self.load_error = str(exc)
@@ -200,16 +196,20 @@ class FaceEngine:
 
         self.model_type = model_type
 
-        # Reload label map for the active model
-        if LABEL_MAP_PATH.exists():
-            try:
-                with LABEL_MAP_PATH.open("r", encoding="utf-8") as file:
-                    rawMap = json.load(file)
-                self.labelMap = {int(key): value for key, value in rawMap.items()}
-            except Exception:
-                self.labelMap = {}
+        # Each model keeps its own label map: InsightFace derives from in-memory
+        # classNames; ArcFace reads from labelMap.json (CNN ground truth).
+        if model_type == "insightface":
+            self.labelMap = {i: name for i, name in enumerate(self.classNames)}
         else:
-            self.labelMap = {}
+            if LABEL_MAP_PATH.exists():
+                try:
+                    with LABEL_MAP_PATH.open("r", encoding="utf-8") as file:
+                        rawMap = json.load(file)
+                    self.labelMap = {int(key): value for key, value in rawMap.items()}
+                except Exception:
+                    self.labelMap = {}
+            else:
+                self.labelMap = {}
 
         self._refresh_sample_images()
         self.demo_mode = self._check_demo_mode()
@@ -605,8 +605,75 @@ class FaceEngine:
             sample_embeddings=self.sampleEmbeddings.astype(np.float32),
             sample_labels=self.sampleLabels.astype(np.int64),
         )
-        with LABEL_MAP_PATH.open("w", encoding="utf-8") as file:
-            json.dump({index: name for index, name in enumerate(self.classNames)}, file, indent=2)
+        # NOTE: labelMap.json is the CNN model's ground truth and must NOT be
+        # overwritten here. InsightFace class names live in face_index.npz only.
+
+    def rebuild_insightface_index(self) -> bool:
+        """Rebuild InsightFace index from all images in dataset/captured/.
+        Existing entries for people not in captured/ are preserved.
+        Returns True if the index has at least one person after rebuilding."""
+        if self.insightface_backend is None:
+            return len(self.classNames) > 0
+
+        if not CAPTURED_DIR.exists():
+            return len(self.classNames) > 0
+
+        for personDir in sorted(CAPTURED_DIR.iterdir()):
+            if not personDir.is_dir():
+                continue
+            name = personDir.name
+            embeddings: List[np.ndarray] = []
+
+            for imagePath in sorted(personDir.iterdir()):
+                if imagePath.suffix.lower() not in _VALID_IMAGE_SUFFIXES:
+                    continue
+                img = cv2.imread(str(imagePath))
+                if img is None:
+                    continue
+                result = self.insightface_backend.extract_from_image(img, assume_aligned=True)
+                if result is not None:
+                    embeddings.append(result.embedding)
+
+            if not embeddings:
+                continue
+
+            proto = self.insightface_backend.build_mean_embedding(embeddings)
+            if proto is None:
+                continue
+
+            newEmbs = np.stack(embeddings, axis=0).astype(np.float32)
+
+            if name in self.classNames:
+                idx = self.classNames.index(name)
+                self.prototypes[idx] = proto
+                keepMask = self.sampleLabels != idx
+                newLabels = np.full((len(embeddings),), idx, dtype=np.int64)
+                self.sampleEmbeddings = np.vstack([self.sampleEmbeddings[keepMask], newEmbs])
+                self.sampleLabels = np.concatenate([self.sampleLabels[keepMask], newLabels])
+            else:
+                idx = len(self.classNames)
+                self.classNames.append(name)
+                self.labelMap[idx] = name
+                self.prototypes = (
+                    np.vstack([self.prototypes, proto])
+                    if self.prototypes.size else proto.reshape(1, -1)
+                )
+                newLabels = np.full((len(embeddings),), idx, dtype=np.int64)
+                self.sampleEmbeddings = (
+                    np.vstack([self.sampleEmbeddings, newEmbs])
+                    if self.sampleEmbeddings.size else newEmbs
+                )
+                self.sampleLabels = (
+                    np.concatenate([self.sampleLabels, newLabels])
+                    if self.sampleLabels.size else newLabels
+                )
+                self.detection_counts.setdefault(name, 0)
+
+        if not self.classNames or self.prototypes.size == 0:
+            return False
+
+        self._persist_index()
+        return True
 
     def _face_to_b64(self, face_bgr: np.ndarray) -> str:
         if face_bgr is None or face_bgr.size == 0:

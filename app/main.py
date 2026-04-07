@@ -1,5 +1,6 @@
 import time
 import platform
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -497,7 +498,37 @@ def api_enroll_confirm() -> Any:
 
     if new_user is not None:
         socketio.emit("enrollment_complete", new_user)
+        if face_engine.insightface_backend is not None:
+            _start_insightface_retrain()
     return jsonify({"status": "ok", "user": new_user})
+
+
+def _start_insightface_retrain() -> None:
+    """Rebuild the InsightFace index in a background thread and emit status events."""
+    def _retrain() -> None:
+        socketio.emit("training_status", {
+            "status": "in_progress",
+            "message": "Training new face, please wait...",
+        })
+        try:
+            success = face_engine.rebuild_insightface_index()
+            if success:
+                socketio.emit("training_status", {
+                    "status": "done",
+                    "message": "Training complete",
+                })
+            else:
+                socketio.emit("training_status", {
+                    "status": "error",
+                    "message": "Training failed — no faces extracted",
+                })
+        except Exception as exc:
+            socketio.emit("training_status", {
+                "status": "error",
+                "message": f"Training error: {exc}",
+            })
+
+    threading.Thread(target=_retrain, daemon=True).start()
 
 
 @app.route("/api/enroll/cancel", methods=["POST"])
