@@ -225,7 +225,7 @@ body::before {
   overflow:hidden; border:1px solid rgba(139,92,246,0.2);
 }
 .model-option {
-  position:relative; z-index:2;
+  position:relative; z-index:2; flex:1; text-align:center;
   padding:6px 14px; border:none; background:transparent;
   font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:500;
   letter-spacing:0.08em; color:var(--text-muted);
