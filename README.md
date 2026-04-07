@@ -1,6 +1,6 @@
 # FaceVault - AI Face Recognition Application
 
-A real-time face recognition web application built with Flask, SocketIO, and dual AI model support. Switch between **CNN** (ArcFace classifier) and **InsightFace** (embedding similarity) at runtime without restarting the app.
+A real-time face recognition web application built with Flask, SocketIO, and dual AI model support. Switch between **CNN** and **InsightFace** (embedding similarity, [Paper & Website](https://www.insightface.ai/research/arcface)) at runtime without restarting the app.
 
 ## Features
 
@@ -12,14 +12,13 @@ A real-time face recognition web application built with Flask, SocketIO, and dua
 - **Activity Logging** - SQLite-backed detection log with CSV export
 - **Stability Tracking** - Alignment guidance, blur detection, and multi-frame consensus before prediction
 - **Gallery View** - See all enrolled users at a glance
-- **No Demo Mode** - Adding new people never breaks the live recognition pipeline
 
 ## How the Models Work
 
 | | CNN | InsightFace |
 |---|---|---|
 | **Detection** | OpenCV Haar Cascade | `buffalo_l` RetinaFace |
-| **Recognition** | Custom CNN (`FaceClassifierCNN`) with softmax + margin-based confidence | 512-d embeddings with cosine similarity against prototype vectors |
+| **Recognition** | Custom CNN with softmax + margin-based confidence | 512-d embeddings with cosine similarity against prototype vectors |
 | **Model File** | `models/bestModel.pth` + `models/labelMap.json` | `models/face_index.npz` (auto-updated on enrollment) |
 | **Decision** | Known if confidence >= threshold AND margin >= recognition_margin | Known if cosine similarity >= threshold |
 | **New person support** | Requires retraining CNN (offline) | Automatic — index rebuilds in background after enrollment |
@@ -78,6 +77,8 @@ Face-Recognition-Application/
 - pip
 
 ### Create environment and install dependencies
+
+From the project root:
 
 ```bash
 python3 -m venv venv
