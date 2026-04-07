@@ -1,6 +1,7 @@
 import json
 import math
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -26,6 +27,7 @@ from utils.config import (
     defaultUnknownThreshold,
     deviceName,
     earlyStoppingPatience,
+    faceIndexPath,
     imageSize,
     labelMapPath,
     labelSmoothing,
@@ -36,6 +38,35 @@ from utils.config import (
     trainingSummaryPath,
     weightDecay,
 )
+EMBEDDING_SIZE = 512
+MODEL_PACKAGE = "buffalo_l"
+
+
+INSIGHTFACE_TRAINING_SUMMARY_PATH = trainingSummaryPath.with_name(
+    "insightface_training_summary.json"
+)
+INSIGHTFACE_MODEL_METADATA_PATH = modelMetadataPath.with_name(
+    "insightface_model_metadata.json"
+)
+
+
+def createInsightFaceBackend():
+    try:
+        from utils.insightface_backend import (
+            EMBEDDING_SIZE as backendEmbeddingSize,
+            MODEL_PACKAGE as backendModelPackage,
+            InsightFaceBackend,
+        )
+    except ImportError as exc:
+        raise ImportError(
+            "InsightFace dependencies are not installed. "
+            "Install insightface and onnxruntime before running InsightFace training."
+        ) from exc
+
+    global EMBEDDING_SIZE, MODEL_PACKAGE
+    EMBEDDING_SIZE = backendEmbeddingSize
+    MODEL_PACKAGE = backendModelPackage
+    return InsightFaceBackend()
 
 
 class FaceTrainer:
@@ -331,8 +362,218 @@ class FaceTrainer:
             json.dump(metadata, file, indent=2)
 
 
+class InsightFaceEmbeddingTrainer:
+    def __init__(self) -> None:
+        self.backend = createInsightFaceBackend()
+        self.datasetLoader = FaceDatasetLoader()
+
+    def run(self) -> None:
+        self.ensureProcessedDataset()
+
+        datasetsMap = self.datasetLoader.createPathDatasets()
+        trainData = self.loadSplitEmbeddings(datasetsMap["train"])
+        valData = self.loadSplitEmbeddings(datasetsMap["val"])
+        testData = self.loadSplitEmbeddings(datasetsMap["test"])
+
+        classNames = self.datasetLoader.getClassNames(datasetsMap["train"])
+        classNames = [name for name in classNames if trainData.get(name)]
+        if not classNames:
+            raise ValueError("No classes with usable embeddings found in processed train split.")
+
+        classToIndex = {name: index for index, name in enumerate(classNames)}
+        prototypes = self.buildPrototypes(trainData, classNames)
+        sampleEmbeddings, sampleLabels = self.flattenSamples(trainData, classToIndex)
+
+        threshold, valAccuracy = self.evaluateAndCalibrate(valData, classNames, prototypes)
+        testAccuracy = self.evaluateClosedSet(testData, classNames, prototypes)
+
+        self.saveArtifacts(
+            classNames=classNames,
+            prototypes=prototypes,
+            sampleEmbeddings=sampleEmbeddings,
+            sampleLabels=sampleLabels,
+            threshold=threshold,
+        )
+
+        summary = {
+            "class_names": classNames,
+            "final_val_accuracy": valAccuracy,
+            "final_test_accuracy": testAccuracy,
+            "unknown_threshold": threshold,
+            "inference_mode": "insightface_embeddings",
+            "backbone": MODEL_PACKAGE,
+            "embedding_size": EMBEDDING_SIZE,
+        }
+        INSIGHTFACE_TRAINING_SUMMARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with INSIGHTFACE_TRAINING_SUMMARY_PATH.open("w", encoding="utf-8") as file:
+            json.dump(summary, file, indent=2)
+
+        print(f"Classes found: {classNames}")
+        print(f"Validation accuracy: {valAccuracy:.2f}%")
+        print(f"Test accuracy      : {testAccuracy:.2f}%")
+        print(f"Unknown threshold  : {threshold:.3f}")
+        print(f"Saved face index   : {faceIndexPath}")
+
+    def ensureProcessedDataset(self) -> None:
+        if datasetMetadataPath.exists():
+            return
+        print("Processed dataset not found. Running preprocessing first.")
+        FaceDatasetPreprocessor().run()
+
+    def loadSplitEmbeddings(self, dataset) -> Dict[str, List[np.ndarray]]:
+        import cv2
+
+        data: Dict[str, List[np.ndarray]] = defaultdict(list)
+        classNames = self.datasetLoader.getClassNames(dataset)
+        for imagePath, labelIndex in dataset.samples:
+            image = cv2.imread(str(imagePath))
+            if image is None:
+                continue
+            result = self.backend.extract_from_image(image, assume_aligned=True)
+            if result is None:
+                continue
+            data[classNames[labelIndex]].append(result.embedding)
+        return data
+
+    def buildPrototypes(
+        self,
+        trainData: Dict[str, List[np.ndarray]],
+        classNames: List[str],
+    ) -> np.ndarray:
+        rows: List[np.ndarray] = []
+        for name in classNames:
+            proto = self.backend.build_mean_embedding(trainData[name])
+            if proto is None:
+                raise ValueError(f"No usable embeddings found for class '{name}'.")
+            rows.append(proto)
+        return np.stack(rows, axis=0).astype(np.float32)
+
+    def flattenSamples(
+        self,
+        trainData: Dict[str, List[np.ndarray]],
+        classToIndex: Dict[str, int],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        embeddings: List[np.ndarray] = []
+        labels: List[int] = []
+        for name, rows in trainData.items():
+            if name not in classToIndex:
+                continue
+            for row in rows:
+                embeddings.append(np.asarray(row, dtype=np.float32))
+                labels.append(classToIndex[name])
+        return np.stack(embeddings, axis=0).astype(np.float32), np.asarray(labels, dtype=np.int64)
+
+    def evaluateAndCalibrate(
+        self,
+        splitData: Dict[str, List[np.ndarray]],
+        classNames: List[str],
+        prototypes: np.ndarray,
+    ) -> Tuple[float, float]:
+        classToIndex = {name: index for index, name in enumerate(classNames)}
+        correct = 0
+        total = 0
+        positives: List[float] = []
+        negatives: List[float] = []
+
+        for className, embeddings in splitData.items():
+            if className not in classToIndex:
+                continue
+            trueIndex = classToIndex[className]
+            for embedding in embeddings:
+                scores = prototypes @ embedding
+                predIndex = int(np.argmax(scores))
+                correct += int(predIndex == trueIndex)
+                total += 1
+                positives.append(float(scores[trueIndex]))
+                wrongScores = np.delete(scores, trueIndex)
+                if wrongScores.size:
+                    negatives.append(float(np.max(wrongScores)))
+
+        threshold = self.findBestCutoff(
+            np.asarray(positives, dtype=np.float32),
+            np.asarray(negatives, dtype=np.float32),
+            defaultValue=defaultUnknownThreshold,
+            minimum=confidenceThresholdFloor,
+            maximum=confidenceThresholdCeil,
+        )
+        accuracy = 100.0 * correct / max(1, total)
+        return threshold, accuracy
+
+    def evaluateClosedSet(
+        self,
+        splitData: Dict[str, List[np.ndarray]],
+        classNames: List[str],
+        prototypes: np.ndarray,
+    ) -> float:
+        classToIndex = {name: index for index, name in enumerate(classNames)}
+        correct = 0
+        total = 0
+        for className, embeddings in splitData.items():
+            if className not in classToIndex:
+                continue
+            trueIndex = classToIndex[className]
+            for embedding in embeddings:
+                predIndex = int(np.argmax(prototypes @ embedding))
+                correct += int(predIndex == trueIndex)
+                total += 1
+        return 100.0 * correct / max(1, total)
+
+    def findBestCutoff(
+        self,
+        positiveValues: np.ndarray,
+        negativeValues: np.ndarray,
+        defaultValue: float,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        if positiveValues.size == 0 or negativeValues.size == 0:
+            return defaultValue
+
+        thresholds = np.linspace(minimum, maximum, num=91)
+        bestThreshold = defaultValue
+        bestScore = -1.0
+        for threshold in thresholds:
+            truePositiveRate = float(np.mean(positiveValues >= threshold))
+            trueNegativeRate = float(np.mean(negativeValues < threshold))
+            balancedAccuracy = 0.5 * (truePositiveRate + trueNegativeRate)
+            if balancedAccuracy > bestScore:
+                bestScore = balancedAccuracy
+                bestThreshold = float(threshold)
+        return bestThreshold
+
+    def saveArtifacts(
+        self,
+        classNames: List[str],
+        prototypes: np.ndarray,
+        sampleEmbeddings: np.ndarray,
+        sampleLabels: np.ndarray,
+        threshold: float,
+    ) -> None:
+        faceIndexPath.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            faceIndexPath,
+            class_names=np.asarray(classNames),
+            prototypes=prototypes.astype(np.float32),
+            sample_embeddings=sampleEmbeddings.astype(np.float32),
+            sample_labels=sampleLabels.astype(np.int64),
+        )
+
+        metadata = {
+            "inference_mode": "insightface_embeddings",
+            "backbone": MODEL_PACKAGE,
+            "embedding_size": EMBEDDING_SIZE,
+            "unknown_threshold": threshold,
+        }
+        with INSIGHTFACE_MODEL_METADATA_PATH.open("w", encoding="utf-8") as file:
+            json.dump(metadata, file, indent=2)
+
+
 def main() -> None:
+    print("=== Training CNN classifier ===")
     FaceTrainer().run()
+
+    print("\n=== Training InsightFace embedding index ===")
+    InsightFaceEmbeddingTrainer().run()
 
 
 if __name__ == "__main__":
