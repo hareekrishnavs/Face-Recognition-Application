@@ -282,4 +282,4 @@ The CNN model is **not affected** by enrollment. Its `labelMap.json` and `bestMo
 
 ## Database
 
-The app uses SQLite (`app/facevault.db`). It auto-creates on first run — no setup required.
+The app uses SQLite (`app/facevault.db`). It auto-creates on first run 
