@@ -141,7 +141,7 @@ def _open_camera() -> bool:
 
     candidate_indices = [configured_index]
     if platform.system() == "Darwin":
-        preferred_order = [1, 0, 2, 3, 4] if prefer_builtin else [0, 1, 2, 3, 4]
+        preferred_order = [0, 1, 2, 3, 4] if prefer_builtin else [1, 0, 2, 3, 4]
         candidate_indices = []
         for index in preferred_order:
             if index not in candidate_indices:
@@ -152,12 +152,11 @@ def _open_camera() -> bool:
     cap = None
     chosen_index = None
     for index in candidate_indices:
-        captureCandidates = []
-        if platform.system() == "Darwin":
-            captureCandidates.append(cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION))
-        captureCandidates.append(cv2.VideoCapture(index))
+        backends = [cv2.CAP_AVFOUNDATION] if platform.system() == "Darwin" else [cv2.CAP_ANY]
+        backends.append(cv2.CAP_ANY)
 
-        for candidate in captureCandidates:
+        for backend in backends:
+            candidate = cv2.VideoCapture(index, backend)
             if candidate.isOpened():
                 cap = candidate
                 chosen_index = index

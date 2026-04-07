@@ -54,7 +54,7 @@ function setActiveModel(model) {
   });
   const slider = modelToggle.querySelector('.model-slider');
   slider.style.transform = model === 'insightface' ? 'translateX(100%)' : 'translateX(0)';
-  if (hudEngine) hudEngine.textContent = model === 'insightface' ? 'InsightFace' : 'ArcFace';
+  if (hudEngine) hudEngine.textContent = model === 'insightface' ? 'InsightFace' : 'CNN';
 }
 
 modelToggle.querySelectorAll('.model-option').forEach(btn => {
@@ -73,7 +73,7 @@ modelToggle.querySelectorAll('.model-option').forEach(btn => {
           return;
         }
         setActiveModel(model);
-        showToast(`Switched to ${model === 'insightface' ? 'InsightFace' : 'ArcFace'}`, 'info', 2500);
+        showToast(`Switched to ${model === 'insightface' ? 'InsightFace' : 'CNN'}`, 'info', 2500);
       })
       .catch(() => {});
   });
