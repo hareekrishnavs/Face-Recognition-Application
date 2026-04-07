@@ -83,7 +83,7 @@ From the project root:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements_web.txt
+pip install -r app/requirements_web.txt
 ```
 
 ### Run
