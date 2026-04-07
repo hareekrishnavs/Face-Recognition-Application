@@ -29,3 +29,9 @@ __pycache__/
 # Training checkpoints (keep only bestModel.pth)
 training/checkpoints/
 training/runs/
+
+# Screenshots and pictures
+Screenshot/
+Screenshot.zip
+Pictures/
+pictures/
