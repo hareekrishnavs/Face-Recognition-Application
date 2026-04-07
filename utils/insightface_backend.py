@@ -1,11 +1,28 @@
 from __future__ import annotations
 
+import os
+import tempfile
+import warnings
+from contextlib import redirect_stdout
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import Iterable, Optional
 
 import cv2
 import numpy as np
+
+_matplotlibCacheDir = Path(tempfile.gettempdir()) / "facevault-matplotlib"
+_matplotlibCacheDir.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(_matplotlibCacheDir))
+os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
+warnings.filterwarnings(
+    "ignore",
+    message="`estimate` is deprecated.*",
+    category=FutureWarning,
+    module="insightface.utils.face_align",
+)
+
 from insightface.app import FaceAnalysis
 
 
@@ -24,8 +41,9 @@ class FaceEmbeddingResult:
 
 class InsightFaceBackend:
     def __init__(self) -> None:
-        self.app = FaceAnalysis(name=MODEL_PACKAGE, providers=["CPUExecutionProvider"])
-        self.app.prepare(ctx_id=0, det_size=DETECTION_SIZE)
+        with redirect_stdout(StringIO()):
+            self.app = FaceAnalysis(name=MODEL_PACKAGE, providers=["CPUExecutionProvider"])
+            self.app.prepare(ctx_id=0, det_size=DETECTION_SIZE)
         self.recognition = self.app.models["recognition"]
 
     def detect(self, image_bgr: np.ndarray):

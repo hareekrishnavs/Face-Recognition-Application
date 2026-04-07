@@ -10,7 +10,8 @@ from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
-from pillow_heif import register_heif_opener
+from pillow_heif import open_heif, register_heif_opener
+from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -61,6 +62,7 @@ class FaceDatasetPreprocessor:
             cv2.data.haarcascades + "haarcascade_profileface.xml"
         )
         self.rng = np.random.default_rng(randomSeed)
+        self._imageReadErrors: Dict[Path, str] = {}
 
     def run(self) -> Dict[str, object]:
         rawRecords = self._collect_records()
@@ -118,6 +120,7 @@ class FaceDatasetPreprocessor:
         with datasetMetadataPath.open("w", encoding="utf-8") as file:
             json.dump(manifest, file, indent=2, sort_keys=True)
 
+        self._print_person_summaries(rawRecords, croppedRecords, skippedCounts, summary)
         return manifest
 
     def _collect_records(self) -> Dict[str, List[ImageRecord]]:
@@ -129,7 +132,9 @@ class FaceDatasetPreprocessor:
         for personDir in sorted(path for path in rawDir.iterdir() if path.is_dir()):
             personRecords: List[ImageRecord] = []
             for imagePath in sorted(path for path in personDir.iterdir() if path.is_file()):
-                if imagePath.suffix.lower() not in supportedExtensions and imagePath.suffix:
+                if imagePath.name.startswith("."):
+                    continue
+                if imagePath.suffix.lower() not in supportedExtensions:
                     continue
                 personRecords.append(
                     ImageRecord(
@@ -158,16 +163,26 @@ class FaceDatasetPreprocessor:
         skippedCounts: Dict[str, int] = {}
 
         for personName, personRecords in sorted(records.items()):
+            print("=" * 60)
+            print(f"Processing person: {personName}")
+            print("=" * 60)
             croppedPersonRecords: List[CroppedFaceRecord] = []
             skipped = 0
 
-            for record in personRecords:
+            progress = tqdm(
+                personRecords,
+                desc=f"Images for {personName}",
+                unit="img",
+                leave=True,
+            )
+            for record in progress:
                 image = self._read_image(record.sourcePath)
                 if image is None:
                     skipped += 1
                     continue
 
-                faceImage = self._extract_face(image)
+                allowFallback = record.sourcePath.suffix.lower() in {".heic", ".heif"}
+                faceImage = self._extract_face(image, allowFallback=allowFallback)
                 if faceImage is None:
                     skipped += 1
                     continue
@@ -247,11 +262,22 @@ class FaceDatasetPreprocessor:
         try:
             image = Image.open(imagePath)
             image = ImageOps.exif_transpose(image).convert("RGB")
-        except Exception:
-            return None
-        return image
+            image.load()
+            return image
+        except Exception as pilError:
+            if imagePath.suffix.lower() not in {".heic", ".heif"}:
+                self._imageReadErrors[imagePath] = str(pilError)
+                return None
 
-    def _extract_face(self, image: Image.Image) -> Optional[Image.Image]:
+        try:
+            heif = open_heif(imagePath, convert_hdr_to_8bit=True, bgr_mode=False)
+            image = Image.frombytes(heif.mode, heif.size, heif.data, "raw")
+            return ImageOps.exif_transpose(image).convert("RGB")
+        except Exception as heifError:
+            self._imageReadErrors[imagePath] = str(heifError)
+            return None
+
+    def _extract_face(self, image: Image.Image, allowFallback: bool = False) -> Optional[Image.Image]:
         rgb = np.array(image)
         bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
@@ -260,6 +286,10 @@ class FaceDatasetPreprocessor:
         if not faces:
             faces = self._detect_faces(gray)
         if not faces:
+            if allowFallback:
+                crop = self._square_center_crop(rgb)
+                resized = cv2.resize(crop, imageSize, interpolation=cv2.INTER_AREA)
+                return Image.fromarray(resized)
             return None
 
         x, y, w, h = max(faces, key=lambda box: box[2] * box[3])
@@ -382,6 +412,59 @@ class FaceDatasetPreprocessor:
             return 0
         return len([path for path in personDir.iterdir() if path.is_file()])
 
+    def _print_person_summaries(
+        self,
+        rawRecords: Dict[str, List[ImageRecord]],
+        croppedRecords: Dict[str, List[CroppedFaceRecord]],
+        skippedCounts: Dict[str, int],
+        summary: Dict[str, Dict[str, Dict[str, int]]],
+    ) -> None:
+        for personName in sorted(rawRecords):
+            personSummary = summary["processed"][personName]
+            trainOriginals = personSummary.get("train_original", 0)
+            valOriginals = personSummary.get("val_original", 0)
+            testOriginals = personSummary.get("test_original", 0)
+            trainAugmented = personSummary.get("train_augmented", 0)
+            trainTotal = trainOriginals + trainAugmented
+            valTotal = valOriginals
+            testTotal = testOriginals
+            totalImages = len(rawRecords[personName])
+            selectedFaces = len(croppedRecords.get(personName, []))
+            skipped = skippedCounts.get(personName, 0)
+            selectionRate = 100.0 * selectedFaces / max(1, totalImages)
+
+            print()
+            print(f"Selection summary for {personName}:")
+            print(f"  Total images found  : {totalImages}")
+            print(f"  Faces selected      : {selectedFaces}")
+            print(f"  Images skipped      : {skipped}")
+            print(f"  Selection rate      : {selectionRate:.2f}%")
+            print()
+            print("Before augmentation:")
+            print(f"  Train originals     : {trainOriginals}")
+            print(f"  Val originals       : {valOriginals}")
+            print(f"  Test originals      : {testOriginals}")
+            print()
+            print("After augmentation:")
+            print(f"  Train total         : {trainTotal}")
+            print(f"  Val total           : {valTotal}")
+            print(f"  Test total          : {testTotal}")
+            print()
+            print(f"Saved output for {personName}:")
+            print(f"  Train saved         : {self._count_person_images('train', personName)}")
+            print(f"  Val saved           : {self._count_person_images('val', personName)}")
+            print(f"  Test saved          : {self._count_person_images('test', personName)}")
+            print(
+                "  Total saved         : "
+                f"{self._count_person_images('train', personName) + self._count_person_images('val', personName) + self._count_person_images('test', personName)}"
+            )
+
+        if self._imageReadErrors:
+            print()
+            print("Image read errors:")
+            for imagePath, error in sorted(self._imageReadErrors.items()):
+                print(f"  {imagePath}: {error}")
+
     def _normalise_stem(self, imagePath: Path) -> str:
         stem = imagePath.stem or imagePath.name
         cleaned = "".join(char if char.isalnum() else "_" for char in stem).strip("_")
@@ -389,8 +472,7 @@ class FaceDatasetPreprocessor:
 
 
 def main() -> None:
-    summary = FaceDatasetPreprocessor().run()
-    print(json.dumps(summary, indent=2))
+    FaceDatasetPreprocessor().run()
 
 
 if __name__ == "__main__":

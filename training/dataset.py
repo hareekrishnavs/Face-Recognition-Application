@@ -36,6 +36,13 @@ class FaceDatasetLoader:
             "test": datasets.ImageFolder(splitDirs["test"], transform=self.evalTransform),
         }
 
+    def createPathDatasets(self) -> Dict[str, datasets.ImageFolder]:
+        return {
+            "train": datasets.ImageFolder(splitDirs["train"], transform=None),
+            "val": datasets.ImageFolder(splitDirs["val"], transform=None),
+            "test": datasets.ImageFolder(splitDirs["test"], transform=None),
+        }
+
     def createDataLoaders(
         self, datasetsMap: Dict[str, datasets.ImageFolder]
     ) -> Dict[str, DataLoader]:
