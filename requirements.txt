@@ -1,6 +1,0 @@
-insightface
-onnxruntime
-opencv-python
-numpy
-pillow
-pillow-heif
