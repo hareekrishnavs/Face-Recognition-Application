@@ -1,18 +1,19 @@
 {
   "class_names": [
+    "Akhil",
     "Haree",
     "HariHaran",
     "Harsha",
     "Jacob",
     "Jousha"
   ],
-  "best_val_loss": 0.34790611267089844,
-  "best_val_accuracy": 100.0,
-  "final_val_loss": 0.34790611267089844,
-  "final_val_accuracy": 100.0,
-  "final_test_loss": 0.30888670682907104,
-  "final_test_accuracy": 100.0,
-  "unknown_threshold": 0.65,
-  "recognition_margin": 0.12,
+  "best_val_loss": 0.4223656455675761,
+  "best_val_accuracy": 88.88888888888889,
+  "final_val_loss": 0.4223656455675761,
+  "final_val_accuracy": 88.88888888888889,
+  "final_test_loss": 0.7354492859707938,
+  "final_test_accuracy": 83.33333333333333,
+  "unknown_threshold": 0.655,
+  "recognition_margin": 0.20699999999999996,
   "inference_mode": "classification"
 }

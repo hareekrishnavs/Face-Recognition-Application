@@ -1,0 +1,309 @@
+==================== Data preprocessing ====================
+
+Selection summary for Akhil:
+  Total images found  : 30
+  Faces selected      : 29
+  Images skipped      : 1
+  Selection rate      : 96.67%
+
+Before augmentation:
+  Train originals     : 23
+  Val originals       : 3
+  Test originals      : 3
+
+After augmentation:
+  Train total         : 230
+  Val total           : 3
+  Test total          : 3
+
+Saved output for Akhil:
+  Train saved         : 230
+  Val saved           : 3
+  Test saved          : 3
+  Total saved         : 236
+
+Selection summary for Haree:
+  Total images found  : 30
+  Faces selected      : 30
+  Images skipped      : 0
+  Selection rate      : 100.00%
+
+Before augmentation:
+  Train originals     : 24
+  Val originals       : 3
+  Test originals      : 3
+
+After augmentation:
+  Train total         : 240
+  Val total           : 3
+  Test total          : 3
+
+Saved output for Haree:
+  Train saved         : 240
+  Val saved           : 3
+  Test saved          : 3
+  Total saved         : 246
+
+Selection summary for HariHaran:
+  Total images found  : 31
+  Faces selected      : 31
+  Images skipped      : 0
+  Selection rate      : 100.00%
+
+Before augmentation:
+  Train originals     : 25
+  Val originals       : 3
+  Test originals      : 3
+
+After augmentation:
+  Train total         : 250
+  Val total           : 3
+  Test total          : 3
+
+Saved output for HariHaran:
+  Train saved         : 250
+  Val saved           : 3
+  Test saved          : 3
+  Total saved         : 256
+
+Selection summary for Harsha:
+  Total images found  : 34
+  Faces selected      : 31
+  Images skipped      : 3
+  Selection rate      : 91.18%
+
+Before augmentation:
+  Train originals     : 25
+  Val originals       : 3
+  Test originals      : 3
+
+After augmentation:
+  Train total         : 250
+  Val total           : 3
+  Test total          : 3
+
+Saved output for Harsha:
+  Train saved         : 250
+  Val saved           : 3
+  Test saved          : 3
+  Total saved         : 256
+
+Selection summary for Jacob:
+  Total images found  : 16
+  Faces selected      : 15
+  Images skipped      : 1
+  Selection rate      : 93.75%
+
+Before augmentation:
+  Train originals     : 11
+  Val originals       : 2
+  Test originals      : 2
+
+After augmentation:
+  Train total         : 110
+  Val total           : 2
+  Test total          : 2
+
+Saved output for Jacob:
+  Train saved         : 110
+  Val saved           : 2
+  Test saved          : 2
+  Total saved         : 114
+
+Selection summary for Jousha:
+  Total images found  : 37
+  Faces selected      : 37
+  Images skipped      : 0
+  Selection rate      : 100.00%
+
+Before augmentation:
+  Train originals     : 29
+  Val originals       : 4
+  Test originals      : 4
+
+After augmentation:
+  Train total         : 290
+  Val total           : 4
+  Test total          : 4
+
+Saved output for Jousha:
+  Train saved         : 290
+  Val saved           : 4
+  Test saved          : 4
+  Total saved         : 298
+
+
+======================= Training CNN classifier =======================
+Classes found: ['Akhil', 'Haree', 'HariHaran', 'Harsha', 'Jacob', 'Jousha']
+Number of classes: 6
+Using device: cpu
+Train samples: 1370
+Val samples: 18
+Test samples: 18
+
+Epoch 1/35
+Train Loss     : 1.3528
+Train Accuracy : 53.72%
+Val Loss       : 1.5735
+Val Accuracy   : 44.44%
+Best model updated. Unknown threshold: 0.470, margin: 0.247
+Learning Rate  : 0.000300
+
+Epoch 2/35
+Train Loss     : 0.9997
+Train Accuracy : 72.04%
+Val Loss       : 1.1381
+Val Accuracy   : 77.78%
+Best model updated. Unknown threshold: 0.530, margin: 0.317
+Learning Rate  : 0.000300
+
+Epoch 3/35
+Train Loss     : 0.7991
+Train Accuracy : 80.22%
+Val Loss       : 1.0447
+Val Accuracy   : 72.22%
+Best model updated. Unknown threshold: 0.675, margin: 0.233
+Learning Rate  : 0.000300
+
+Epoch 4/35
+Train Loss     : 0.7086
+Train Accuracy : 82.99%
+Val Loss       : 0.7219
+Val Accuracy   : 94.44%
+Best model updated. Unknown threshold: 0.605, margin: 0.273
+Learning Rate  : 0.000300
+
+Epoch 5/35
+Train Loss     : 0.6266
+Train Accuracy : 86.28%
+Val Loss       : 0.6627
+Val Accuracy   : 83.33%
+Best model updated. Unknown threshold: 0.860, margin: 0.273
+Learning Rate  : 0.000300
+
+Epoch 6/35
+Train Loss     : 0.5053
+Train Accuracy : 92.34%
+Val Loss       : 0.9816
+Val Accuracy   : 83.33%
+Learning Rate  : 0.000300
+
+Epoch 7/35
+Train Loss     : 0.4640
+Train Accuracy : 93.28%
+Val Loss       : 0.4224
+Val Accuracy   : 88.89%
+Best model updated. Unknown threshold: 0.655, margin: 0.207
+Learning Rate  : 0.000300
+
+Epoch 8/35
+Train Loss     : 0.4324
+Train Accuracy : 94.96%
+Val Loss       : 0.6819
+Val Accuracy   : 77.78%
+Learning Rate  : 0.000300
+
+Epoch 9/35
+Train Loss     : 0.4599
+Train Accuracy : 92.34%
+Val Loss       : 0.9575
+Val Accuracy   : 77.78%
+Learning Rate  : 0.000300
+
+Epoch 10/35
+Train Loss     : 0.4362
+Train Accuracy : 94.31%
+Val Loss       : 0.6150
+Val Accuracy   : 88.89%
+Learning Rate  : 0.000300
+
+Epoch 11/35
+Train Loss     : 0.3718
+Train Accuracy : 97.45%
+Val Loss       : 0.5177
+Val Accuracy   : 88.89%
+Learning Rate  : 0.000150
+
+Epoch 12/35
+Train Loss     : 0.3395
+Train Accuracy : 98.54%
+Val Loss       : 0.5117
+Val Accuracy   : 83.33%
+Learning Rate  : 0.000150
+
+Epoch 13/35
+Train Loss     : 0.3270
+Train Accuracy : 98.69%
+Val Loss       : 0.5184
+Val Accuracy   : 88.89%
+Learning Rate  : 0.000150
+
+Epoch 14/35
+Train Loss     : 0.3232
+Train Accuracy : 98.76%
+Val Loss       : 0.5444
+Val Accuracy   : 94.44%
+Learning Rate  : 0.000150
+
+Epoch 15/35
+Train Loss     : 0.3153
+Train Accuracy : 98.98%
+Val Loss       : 0.4281
+Val Accuracy   : 94.44%
+Learning Rate  : 0.000075
+Early stopping triggered after 15 epochs.
+
+Validation classification report:
+              precision    recall  f1-score   support
+
+       Akhil     0.6667    0.6667    0.6667         3
+       Haree     1.0000    1.0000    1.0000         3
+   HariHaran     0.7500    1.0000    0.8571         3
+      Harsha     1.0000    1.0000    1.0000         3
+       Jacob     1.0000    0.5000    0.6667         2
+      Jousha     1.0000    1.0000    1.0000         4
+
+    accuracy                         0.8889        18
+   macro avg     0.9028    0.8611    0.8651        18
+weighted avg     0.9028    0.8889    0.8836        18
+
+Validation confusion matrix:
+true\pred       Akhil        Haree        HariHaran    Harsha       Jacob        Jousha      
+Akhil           2            0            1            0            0            0           
+Haree           0            3            0            0            0            0           
+HariHaran       0            0            3            0            0            0           
+Harsha          0            0            0            3            0            0           
+Jacob           1            0            0            0            1            0           
+Jousha          0            0            0            0            0            4           
+
+Test classification report:
+              precision    recall  f1-score   support
+
+       Akhil     1.0000    0.6667    0.8000         3
+       Haree     1.0000    1.0000    1.0000         3
+   HariHaran     0.5000    1.0000    0.6667         3
+      Harsha     1.0000    1.0000    1.0000         3
+       Jacob     1.0000    0.5000    0.6667         2
+      Jousha     1.0000    0.7500    0.8571         4
+
+    accuracy                         0.8333        18
+   macro avg     0.9167    0.8194    0.8317        18
+weighted avg     0.9167    0.8333    0.8423        18
+
+Test confusion matrix:
+true\pred       Akhil        Haree        HariHaran    Harsha       Jacob        Jousha      
+Akhil           2            0            1            0            0            0           
+Haree           0            3            0            0            0            0           
+HariHaran       0            0            3            0            0            0           
+Harsha          0            0            0            3            0            0           
+Jacob           0            0            1            0            1            0           
+Jousha          0            0            1            0            0            3  
+
+
+======================= Training InsightFace embedding index =======================
+
+Classes found: ['Akhil', 'Haree', 'HariHaran', 'Harsha', 'Jacob', 'Jousha']
+Validation accuracy: 94.44%
+Test accuracy      : 88.89%
+Unknown threshold  : 0.450
+Saved face index   : /models/face_index.npz

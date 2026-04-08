@@ -1,0 +1,16 @@
+{
+  "class_names": [
+    "Akhil",
+    "Haree",
+    "HariHaran",
+    "Harsha",
+    "Jacob",
+    "Jousha"
+  ],
+  "final_val_accuracy": 94.44444444444444,
+  "final_test_accuracy": 88.88888888888889,
+  "unknown_threshold": 0.45,
+  "inference_mode": "insightface_embeddings",
+  "backbone": "buffalo_l",
+  "embedding_size": 512
+}
