@@ -184,6 +184,9 @@ models/insightface_training_summary.json
 
 Do not rename `bestModel.pth`, `labelMap.json`, `model_metadata.json`, or `face_index.npz`; the web app loads those paths directly.
 
+
+##### Check backend_end_results.txt for the results we obtained
+
 ## Model Configuration
 
 Training and preprocessing settings live in `utils/config.py`. Change this file when you want to experiment with dataset preparation or CNN training behavior.
@@ -221,8 +224,6 @@ python training/train.py
 ```
 
 Keep the model output paths in `utils/config.py` unchanged unless you also update the app loader. The UI expects `models/bestModel.pth`, `models/labelMap.json`, `models/model_metadata.json`, and `models/face_index.npz`.
-
-##### Check backend_end_results.txt for the results we obtained
 
 ## Usage
 
